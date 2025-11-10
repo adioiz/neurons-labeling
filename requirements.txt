@@ -1,0 +1,8 @@
+napari>=0.5.4
+magicgui>=0.9.1
+tifffile>=2024.9.20
+numpy>=1.26
+pandas>=2.2
+scikit-image>=0.24
+qtpy>=2.4
+PyQt5>=5.15
