@@ -13,7 +13,6 @@ from .io import save_landmarks, save_contours
 class VectorLabelerApp:
     """
     Napari-based manual vector & mask labeler:
-    - Draw polygons (contours) per frame → export ordered vertices as CSV.
     - Add landmarks (keypoints) per frame → export as CSV.
     - Duplicate previous frame's landmarks to current frame.
     - Paint masks with a Labels layer, carry previous frame forward, and save labels stack.

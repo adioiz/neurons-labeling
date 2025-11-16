@@ -2,7 +2,7 @@ from qtpy.QtWidgets import QMessageBox
 
 def current_frame(viewer) -> int:
     """
-    Return the current time/frame index from the napari viewer.
+    Return the current frame index from the napari viewer.
     Assumes the image is in shape (T, Y, X) so time is axis 0.
     """
     return int(viewer.dims.current_step[0])
