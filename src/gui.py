@@ -138,70 +138,73 @@ class VectorLabelerApp:
             self.labels_data = new_data
 
         @magicgui(
-            call_button="Masks → Coordinates (ALL frames)",
+            call_button="Masks → Coordinates (ALL pixels)",
             layout="vertical",
             label_id={"label": "Use label id (0 = any nonzero)", "value": 4, "min": 0},
             object_id={"label": "object_id", "value": 1, "min": 1},
             csv_path={"label": "Output CSV filename", "value": "annotations.csv"},
-            also_draw={"label": "Also draw polygons in viewer", "value": False},
         )
         def masks_to_coordinates_all(
             label_id: int = 4,
             object_id: int = 1,
-            csv_path: str = "annotations.csv",
-            also_draw: bool = False
+            csv_path: str = "annotations.csv"
         ):
             """
-            Convert the painted Labels layer into a single polygon (largest contour) per frame,
-            then save a coordinate table CSV via save_contours(...):
+            Convert the painted Labels layer into a coordinate table of ALL pixels in the mask.
             columns: frame, object_id, vertex_id, x, y
             """
             lab = np.asarray(self.labels_layer.data)
             T = lab.shape[0] if lab.ndim == 3 else 1
 
             rows = []
-            num_frames_with_contour = 0
-
-            def _canonicalize_contour(c: np.ndarray) -> np.ndarray:
-                c = np.asarray(c)  # (N, 2) (y, x)
-                i0 = np.lexsort((c[:, 1], c[:, 0]))[0]
-                if i0 > 0:
-                    c = np.concatenate([c[i0:], c[:i0]], axis=0)
-                return c
+            num_frames_with_mask = 0
 
             for f in range(T):
                 m = lab[f] if lab.ndim == 3 else lab
-                mask = (m > 0) if label_id == 0 else (m == int(label_id))
+                
+                # Create a boolean mask for the specified label_id
+                if label_id == 0:
+                    mask = m > 0
+                else:
+                    mask = m == int(label_id)
+                
                 if not mask.any():
                     continue
-                contours = find_contours(mask, 0.5)
-                if not contours:
-                    continue
-                contour = _canonicalize_contour(max(contours, key=lambda c: c.shape[0]))
-                if also_draw:
-                    self.shapes_layer.add(contour, shape_type='polygon')
-                for vid, (y, x) in enumerate(contour):
+                
+                num_frames_with_mask += 1
+
+                # Get the coordinates of all pixels in the mask
+                # np.where returns (y_coords, x_coords)
+                y_coords, x_coords = np.where(mask)
+                
+                # Iterate over all pixels and add them to the rows
+                for i in range(len(y_coords)):
                     rows.append({
                         "frame": int(f),
                         "object_id": int(object_id),
-                        "vertex_id": int(vid),
-                        "x": float(x),
-                        "y": float(y),
+                        # Use 'i' as a sequential vertex_id for now, as it's not a contour
+                        "vertex_id": int(i), 
+                        "x": float(x_coords[i]),
+                        "y": float(y_coords[i]),
                     })
-                num_frames_with_contour += 1
 
             if not rows:
-                warn("No contours found. Check label_id or make sure masks exist.")
+                warn("No masks found. Check label_id or make sure masks exist.")
                 return
 
             base = Path(csv_path).with_suffix("")
+            # We reuse save_contours to save the rows, as it just saves a CSV from a list of dicts
             out = save_contours(rows, base)
-            info(
-                f"Saved coordinates:\n"
-                f"  {out.name}\n"
-                f"Frames with contours: {num_frames_with_contour}/{T}\n"
-                f"Total vertices: {len(rows)}"
-            )
+            
+            if out:
+                info(
+                    f"Saved coordinates (all mask pixels):\n"
+                    f"  {out.name}\n"
+                    f"Frames with masks: {num_frames_with_mask}/{T}\n"
+                    f"Total pixels: {len(rows)}"
+                )
+            else:
+                warn("Could not save coordinates.")
 
         @magicgui(
             call_button="Save labels stack",
