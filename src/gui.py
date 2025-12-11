@@ -1,3 +1,6 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"  # Fix OpenMP conflict on macOS
+
 from pathlib import Path
 import numpy as np
 from skimage.measure import find_contours
@@ -8,6 +11,13 @@ from magicgui import magicgui
 
 from .utils import current_frame, info, warn
 from .io import save_landmarks, save_contours
+
+# Check if SAM2 is available
+try:
+    from sam2.build_sam import build_sam2_video_predictor_hf
+    SAM2_AVAILABLE = True
+except ImportError:
+    SAM2_AVAILABLE = False
 
 
 class VectorLabelerApp:
@@ -255,8 +265,73 @@ class VectorLabelerApp:
             self.labels_data = loaded
             info(f"Loaded labels from {p.name} into active 'Labels' layer.")
 
+        # ---------- SAM2 Propagation ----------
+        @magicgui(
+            call_button="SAM2: Propagate from frame 0",
+            layout="vertical",
+            label_id={"label": "Label ID to propagate", "value": 4, "min": 1},
+        )
+        def sam2_propagate(label_id: int = 4):
+            """
+            Use SAM2 to propagate mask from frame 0 to ALL frames.
 
-        
+            Steps:
+            1. Paint your mask on frame 0 using the Labels layer
+            2. Click this button
+            3. SAM2 propagates to all frames
+            4. Review/edit with brush/eraser
+            5. Save with "Masks → Coordinates"
+            """
+            if not SAM2_AVAILABLE:
+                warn(
+                    "SAM2 not installed!\n\n"
+                    "Install with:\n"
+                    "  pip install huggingface_hub\n"
+                    "  pip install git+https://github.com/facebookresearch/sam2.git"
+                )
+                return
+
+            # Get labels data
+            labels_data = np.asarray(self.labels_layer.data)
+
+            # Get mask from frame 0
+            if labels_data.ndim == 3:
+                frame0_mask = (labels_data[0] == label_id).astype(np.uint8)
+            else:
+                frame0_mask = (labels_data == label_id).astype(np.uint8)
+
+            if frame0_mask.sum() == 0:
+                warn(f"No mask found on frame 0 with label {label_id}.\n\n"
+                     f"Please paint a mask on frame 0 first.")
+                return
+
+            info(f"Starting SAM2 propagation...\n"
+                 f"Frame 0 mask: {frame0_mask.sum()} pixels\n"
+                 f"This may take a moment...")
+
+            try:
+                output_masks = self._run_sam2(frame0_mask, label_id)
+
+                # Update labels layer
+                self.labels_layer.data = output_masks
+                self.labels_data = output_masks
+
+                frames_with_mask = np.sum(output_masks.max(axis=(1, 2)) > 0)
+                total_frames = output_masks.shape[0]
+
+                info(f"SAM2 complete!\n"
+                     f"Frames with mask: {frames_with_mask}/{total_frames}\n\n"
+                     f"You can now:\n"
+                     f"- Browse frames to review\n"
+                     f"- Edit with brush/eraser\n"
+                     f"- Save with 'Masks → Coordinates'")
+
+            except Exception as e:
+                warn(f"SAM2 error: {str(e)}")
+                import traceback
+                traceback.print_exc()
+
+
         # Add panels to the right dock
         self.viewer.window.add_dock_widget(saver, area="right")
 
@@ -267,8 +342,11 @@ class VectorLabelerApp:
         self.viewer.window.add_dock_widget(masks_to_coordinates_all, area="right")
         self.viewer.window.add_dock_widget(load_labels_from_file, area="right")
 
+        # SAM2 button
+        self.viewer.window.add_dock_widget(sam2_propagate, area="right")
 
         self._masks_to_coordinates_all = masks_to_coordinates_all
+        self._sam2_propagate = sam2_propagate
 
         # Keep references for hotkeys
         self._saver = saver
@@ -295,3 +373,96 @@ class VectorLabelerApp:
         def _prev_frame(v):
             f = current_frame(v)
             v.dims.current_step = (max(f - 1, 0),) + v.dims.current_step[1:]
+
+    # ---------- SAM2 Implementation ----------
+    def _run_sam2(self, frame0_mask: np.ndarray, label_id: int) -> np.ndarray:
+        """
+        Run SAM2 video propagation from frame 0 mask.
+
+        Args:
+            frame0_mask: Binary mask (H, W) for frame 0
+            label_id: Label ID to assign to output masks
+
+        Returns:
+            output_masks: (T, H, W) array with propagated masks
+        """
+        import tempfile
+        import shutil
+        import torch
+        from PIL import Image
+        from sam2.build_sam import build_sam2_video_predictor_hf
+
+        # Detect device
+        if torch.cuda.is_available():
+            device = 'cuda'
+        elif torch.backends.mps.is_available():
+            device = 'mps'
+        else:
+            device = 'cpu'
+
+        print(f"SAM2: Using device: {device}")
+
+        # Create temp directory for video frames
+        temp_dir = Path(tempfile.mkdtemp(prefix='sam2_frames_'))
+        print(f"SAM2: Temp dir: {temp_dir}")
+
+        try:
+            # Save video frames as JPEG images
+            T, H, W = self.imgs.shape[:3]
+            print(f"SAM2: Saving {T} frames...")
+
+            for i in range(T):
+                frame = self.imgs[i].copy().astype(np.float32)
+
+                # Normalize to 0-255
+                frame_min, frame_max = frame.min(), frame.max()
+                if frame_max > frame_min:
+                    frame = (frame - frame_min) / (frame_max - frame_min) * 255
+                frame = frame.astype(np.uint8)
+
+                # Convert grayscale to RGB
+                frame_rgb = np.stack([frame, frame, frame], axis=-1)
+
+                # Save as JPEG
+                img = Image.fromarray(frame_rgb)
+                img.save(temp_dir / f'{i:05d}.jpg')
+
+            # Load SAM2 model
+            print("SAM2: Loading model (tiny)...")
+            predictor = build_sam2_video_predictor_hf(
+                "facebook/sam2.1-hiera-tiny",
+                device=device
+            )
+
+            # Initialize video state
+            print("SAM2: Initializing video state...")
+            inference_state = predictor.init_state(video_path=str(temp_dir))
+
+            # Add frame 0 mask as prompt
+            print(f"SAM2: Adding mask prompt ({frame0_mask.sum()} pixels)...")
+            _, obj_ids, mask_logits = predictor.add_new_mask(
+                inference_state=inference_state,
+                frame_idx=0,
+                obj_id=1,
+                mask=frame0_mask
+            )
+
+            # Propagate through video
+            print("SAM2: Propagating through video...")
+            video_segments = {}
+            for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
+                mask = (out_mask_logits[0] > 0.0).cpu().numpy().squeeze()
+                video_segments[out_frame_idx] = mask
+                print(f"  Frame {out_frame_idx}: {mask.sum()} pixels")
+
+            # Assemble output mask stack
+            output_masks = np.zeros((T, H, W), dtype=np.int32)
+            for frame_idx, mask in video_segments.items():
+                output_masks[frame_idx][mask > 0] = label_id
+
+            print(f"SAM2: Done! Propagated to {len(video_segments)} frames")
+            return output_masks
+
+        finally:
+            # Cleanup
+            shutil.rmtree(temp_dir, ignore_errors=True)

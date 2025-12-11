@@ -1,8 +1,20 @@
+# GUI and visualization
 napari>=0.5.4
 magicgui>=0.9.1
+qtpy>=2.4
+PyQt5>=5.15
+
+# Image I/O and processing
 tifffile>=2024.9.20
 numpy>=1.26
 pandas>=2.2
 scikit-image>=0.24
-qtpy>=2.4
-PyQt5>=5.15
+Pillow>=10.0
+
+# SAM2 dependencies
+torch>=2.0.0
+torchvision>=0.15.0
+huggingface_hub
+
+# Install SAM2 separately:
+# pip install git+https://github.com/facebookresearch/sam2.git
