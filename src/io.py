@@ -25,6 +25,6 @@ def save_contours(rows: List[Dict], basepath: Path) -> Optional[Path]:
     if not rows:
         return None
     df = pd.DataFrame(rows).sort_values(["frame", "object_id", "vertex_id"])
-    out = basepath.with_name(basepath.name + "_contour_vertices.csv")
+    out = basepath.with_name(basepath.name + ".csv")
     df.to_csv(out, index=False)
     return out

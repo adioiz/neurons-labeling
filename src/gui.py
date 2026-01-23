@@ -10,7 +10,7 @@ import napari
 from magicgui import magicgui
 
 from .utils import current_frame, info, warn
-from .io import save_landmarks, save_contours
+from .io import save_contours
 
 # Check if SAM2 is available
 try:
@@ -60,34 +60,6 @@ class VectorLabelerApp:
         self.labels_data = np.zeros_like(self.imgs, dtype=np.int32)
         self.labels_layer = self.viewer.add_labels(self.labels_data, name="Labels")
 
-        # Landmarks (POINTS), explicit ndim=3 so points store time t
-        self.points_layer = self.viewer.add_points(
-            ndim=3,
-            name="landmarks",
-            size=6,
-            properties={
-                "object_id": np.array([], int),
-                "keypoint_name": np.array([], str),
-            },
-            text={"string": "{object_id}:{keypoint_name}", "size": 10, "anchor": "upper_left"},
-        )
-        self.points_layer.face_color = "white"
-        self.points_layer.edge_color = "black"
-
-        # Contours (SHAPES)
-        self.shapes_layer = self.viewer.add_shapes(
-            name="contours",
-            shape_type="polygon",
-            edge_width=2,
-        )
-        # Robust color setup across napari versions
-        self.shapes_layer.edge_color = "cyan"
-        self.shapes_layer.face_color = "cyan"
-        self.shapes_layer.opacity = 0.25
-        self.shapes_layer.blending = "translucent"
-        self.shapes_layer.current_edge_color = "cyan"
-        self.shapes_layer.current_face_color = "cyan"
-
         # Panels & hotkeys
         self._build_panels()
         self._bind_hotkeys()
@@ -96,72 +68,65 @@ class VectorLabelerApp:
 
     # ---------- Right-side control panels ----------
     def _build_panels(self):
-        @magicgui(
-            call_button="Save CSV",
-            layout="vertical",
-            csv_base={"label": "CSV base name (no extension)", "value": "annotations"},
-        )
-        def saver(csv_base: str = "annotations"):
-            """
-            Write CSVs:
-              - <base>_landmarks.csv
-              - <base>_contour_vertices.csv
-            Only files with accumulated rows are written.
-            """
-            base = Path(csv_base).with_suffix("")
-            out_lm = save_landmarks(self.landmark_rows, base)
-            out_ct = save_contours(self.contour_rows, base)
-            if not out_lm and not out_ct:
-                warn("Nothing to save yet. Add landmarks or commit polygons first.")
-                return
-            msg = []
-            if out_lm: msg.append(f"Landmarks → {out_lm.name}")
-            if out_ct: msg.append(f"Contours  → {out_ct.name}")
-            info("Saved:\n" + "\n".join(msg))
+        # --- 1. SETUP PATHS & NAMES ---
+        # Get filename without extension (stem), replace spaces with underscores
+        clean_stem = self.tiff_path.stem.replace(" ", "_")
+        
+        # Define output directories
+        mask_dir = Path("labeled_masks")
+        coord_dir = Path("labeled_coordinates")
+        
+        # Create directories if they don't exist
+        mask_dir.mkdir(exist_ok=True, parents=True)
+        coord_dir.mkdir(exist_ok=True, parents=True)
 
-        # ---------- Mask workflow helpers (FIXED by reassigning .data) ----------
+        # Define default filenames
+        default_csv_name = f"{clean_stem}_labels.csv"
+        default_tif_name = f"{clean_stem}_masks.tif"
+
+        # --- 2. BUILD WIDGETS ---
+
+        # ---------- Mask workflow helpers ----------
         @magicgui(call_button="Carry forward labels (prev → current)")
         def carry_forward():
-            """Copy Labels of frame f-1 into frame f, using .data reassignment to trigger update."""
+            """Copy Labels of frame f-1 into frame f."""
             f = current_frame(self.viewer)
             if f == 0:
                 warn("At frame 0: nothing to carry forward.")
                 return
-            data = np.asarray(self.labels_layer.data)  # snapshot of live data
+            data = np.asarray(self.labels_layer.data) 
             new_data = data.copy()
             new_data[f] = data[f - 1]
-            self.labels_layer.data = new_data  # <-- reassign to fire napari update
-            info(f"Copied labels from frame {f-1} → {f}. Now refine with the brush/eraser.")
-
-            # keep self.labels_data in sync so Save labels stack uses newest array
+            self.labels_layer.data = new_data
+            info(f"Copied labels from frame {f-1} → {f}.")
             self.labels_data = new_data
 
         @magicgui(call_button="Clear labels (current frame)")
         def clear_frame():
-            """Clear current frame labels to zeros, using .data reassignment to trigger update."""
+            """Clear current frame labels to zeros."""
             f = current_frame(self.viewer)
             data = np.asarray(self.labels_layer.data)
             new_data = data.copy()
             new_data[f] = 0
-            self.labels_layer.data = new_data  # <-- reassign to fire napari update
+            self.labels_layer.data = new_data 
             info(f"Cleared labels at frame {f}.")
             self.labels_data = new_data
 
         @magicgui(
-            call_button="Masks → Coordinates (ALL pixels)",
+            call_button="Masks → Coordinates",
             layout="vertical",
-            label_id={"label": "Use label id (0 = any nonzero)", "value": 4, "min": 0},
+            label_id={"label": "Use label id:", "value": 4, "min": 0},
             object_id={"label": "object_id", "value": 1, "min": 1},
-            csv_path={"label": "Output CSV filename", "value": "annotations.csv"},
+            csv_filename={"label": "Output CSV name", "value": default_csv_name},
         )
         def masks_to_coordinates_all(
             label_id: int = 4,
             object_id: int = 1,
-            csv_path: str = "annotations.csv"
+            csv_filename: str = default_csv_name
         ):
             """
-            Convert the painted Labels layer into a coordinate table of ALL pixels in the mask.
-            columns: frame, object_id, vertex_id, x, y
+            Convert painted Labels to coordinates.
+            Saves to: labeled_coordinates/<csv_filename>
             """
             lab = np.asarray(self.labels_layer.data)
             T = lab.shape[0] if lab.ndim == 3 else 1
@@ -172,7 +137,6 @@ class VectorLabelerApp:
             for f in range(T):
                 m = lab[f] if lab.ndim == 3 else lab
                 
-                # Create a boolean mask for the specified label_id
                 if label_id == 0:
                     mask = m > 0
                 else:
@@ -182,17 +146,12 @@ class VectorLabelerApp:
                     continue
                 
                 num_frames_with_mask += 1
-
-                # Get the coordinates of all pixels in the mask
-                # np.where returns (y_coords, x_coords)
                 y_coords, x_coords = np.where(mask)
                 
-                # Iterate over all pixels and add them to the rows
                 for i in range(len(y_coords)):
                     rows.append({
                         "frame": int(f),
                         "object_id": int(object_id),
-                        # Use 'i' as a sequential vertex_id for now, as it's not a contour
                         "vertex_id": int(i), 
                         "x": float(x_coords[i]),
                         "y": float(y_coords[i]),
@@ -202,14 +161,17 @@ class VectorLabelerApp:
                 warn("No masks found. Check label_id or make sure masks exist.")
                 return
 
-            base = Path(csv_path).with_suffix("")
-            # We reuse save_contours to save the rows, as it just saves a CSV from a list of dicts
+            # Construct full path into labeled_coordinates folder
+            full_path = coord_dir / csv_filename
+            base = full_path.with_suffix("") # save_contours adds .csv automatically
+            
+            # We reuse save_contours to save the rows
             out = save_contours(rows, base)
             
             if out:
                 info(
-                    f"Saved coordinates (all mask pixels):\n"
-                    f"  {out.name}\n"
+                    f"Saved coordinates:\n"
+                    f"  {out}\n" # Prints full path
                     f"Frames with masks: {num_frames_with_mask}/{T}\n"
                     f"Total pixels: {len(rows)}"
                 )
@@ -217,42 +179,40 @@ class VectorLabelerApp:
                 warn("Could not save coordinates.")
 
         @magicgui(
-            call_button="Save labels stack",
+            call_button="Save masks labels stack",
             layout="vertical",
-            out_path={"label": "Output TIFF filename", "value": "labels.tif"},
-            as_npy={"label": "Also save .npy", "value": False},
+            out_filename={"label": "Output TIFF name", "value": default_tif_name},
         )
-        def save_labels(out_path: str = "labels.tif", as_npy: bool = False):
+        def save_labels(out_filename: str = default_tif_name):
             """
-            Save the full labels volume (T,H,W) from the live layer.
+            Save the full labels volume.
+            Saves to: labeled_masks/<out_filename>
             """
             self.labels_data = np.asarray(self.labels_layer.data).astype(np.int32)
-            p = Path(out_path).expanduser()
+            
+            # Construct full path into labeled_masks folder
+            p = mask_dir / out_filename
+            
             imwrite(str(p), self.labels_data)
             msg = [f"Saved TIFF → {p} (shape {self.labels_data.shape})"]
-            if as_npy:
-                np.save(str(p.with_suffix(".npy")), self.labels_data)
-                msg.append(f"Saved NPY  → {p.with_suffix('.npy')}")
             info("\n".join(msg))
                 
         @magicgui(
             call_button="Load labels from file → active layer",
             layout="vertical",
-            in_path={"label": "Existing labels file", "value": "labels.tif"},
+            in_path={"label": "Existing labels file", "value": str(mask_dir / default_tif_name)},
         )
-        def load_labels_from_file(in_path: str = "labels.tif"):
+        def load_labels_from_file(in_path: str = str(mask_dir / default_tif_name)):
             """Read labels from disk and replace the current Labels layer data."""
             p = Path(in_path).expanduser()
             if not p.exists():
                 warn(f"File not found: {p}")
                 return
             loaded = imread(str(p))
-            # normalize shape & dtype
             if loaded.ndim == 2:
                 loaded = loaded[np.newaxis, ...]
             loaded = loaded.astype(np.int32)
 
-            # basic shape check against the image stack
             if loaded.shape[1:] != self.imgs.shape[1:]:
                 warn(f"Shape mismatch: file {loaded.shape} vs image {self.imgs.shape}.")
                 return
@@ -260,7 +220,6 @@ class VectorLabelerApp:
                 warn(f"Time mismatch: file has T={loaded.shape[0]} frames, image has T={self.imgs.shape[0]}.")
                 return
 
-            # replace data of our existing Labels layer (fires a redraw)
             self.labels_layer.data = loaded
             self.labels_data = loaded
             info(f"Loaded labels from {p.name} into active 'Labels' layer.")
@@ -272,84 +231,44 @@ class VectorLabelerApp:
             label_id={"label": "Label ID to propagate", "value": 4, "min": 1},
         )
         def sam2_propagate(label_id: int = 4):
-            """
-            Use SAM2 to propagate mask from frame 0 to ALL frames.
-
-            Steps:
-            1. Paint your mask on frame 0 using the Labels layer
-            2. Click this button
-            3. SAM2 propagates to all frames
-            4. Review/edit with brush/eraser
-            5. Save with "Masks → Coordinates"
-            """
+            # (Keep existing SAM2 logic exactly as is)
             if not SAM2_AVAILABLE:
-                warn(
-                    "SAM2 not installed!\n\n"
-                    "Install with:\n"
-                    "  pip install huggingface_hub\n"
-                    "  pip install git+https://github.com/facebookresearch/sam2.git"
-                )
+                warn("SAM2 not installed!")
                 return
-
-            # Get labels data
             labels_data = np.asarray(self.labels_layer.data)
-
-            # Get mask from frame 0
             if labels_data.ndim == 3:
                 frame0_mask = (labels_data[0] == label_id).astype(np.uint8)
             else:
                 frame0_mask = (labels_data == label_id).astype(np.uint8)
 
             if frame0_mask.sum() == 0:
-                warn(f"No mask found on frame 0 with label {label_id}.\n\n"
-                     f"Please paint a mask on frame 0 first.")
+                warn(f"No mask found on frame 0 with label {label_id}.\nPlease paint a mask on frame 0 first.")
                 return
 
-            info(f"Starting SAM2 propagation...\n"
-                 f"Frame 0 mask: {frame0_mask.sum()} pixels\n"
-                 f"This may take a moment...")
+            info(f"Starting SAM2 propagation...")
 
             try:
                 output_masks = self._run_sam2(frame0_mask, label_id)
-
-                # Update labels layer
                 self.labels_layer.data = output_masks
                 self.labels_data = output_masks
-
-                frames_with_mask = np.sum(output_masks.max(axis=(1, 2)) > 0)
-                total_frames = output_masks.shape[0]
-
-                info(f"SAM2 complete!\n"
-                     f"Frames with mask: {frames_with_mask}/{total_frames}\n\n"
-                     f"You can now:\n"
-                     f"- Browse frames to review\n"
-                     f"- Edit with brush/eraser\n"
-                     f"- Save with 'Masks → Coordinates'")
-
+                info(f"SAM2 complete!")
             except Exception as e:
                 warn(f"SAM2 error: {str(e)}")
                 import traceback
                 traceback.print_exc()
 
-
         # Add panels to the right dock
-        self.viewer.window.add_dock_widget(saver, area="right")
-
         self.viewer.window.add_dock_widget(carry_forward, area="right")
         self.viewer.window.add_dock_widget(clear_frame, area="right")
         self.viewer.window.add_dock_widget(save_labels, area="right")
-
         self.viewer.window.add_dock_widget(masks_to_coordinates_all, area="right")
         self.viewer.window.add_dock_widget(load_labels_from_file, area="right")
-
-        # SAM2 button
         self.viewer.window.add_dock_widget(sam2_propagate, area="right")
 
         self._masks_to_coordinates_all = masks_to_coordinates_all
         self._sam2_propagate = sam2_propagate
 
         # Keep references for hotkeys
-        self._saver = saver
         self._carry_forward = carry_forward
         self._clear_frame = clear_frame
         self._save_labels = save_labels
