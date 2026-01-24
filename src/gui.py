@@ -224,38 +224,97 @@ class VectorLabelerApp:
             self.labels_data = loaded
             info(f"Loaded labels from {p.name} into active 'Labels' layer.")
 
-        # ---------- SAM2 Propagation ----------
         @magicgui(
-            call_button="SAM2: Propagate from frame 0",
+            call_button="SAM2: Propagate labels",
             layout="vertical",
-            label_id={"label": "Label ID to propagate", "value": 4, "min": 1},
+            label_id={"label": "Label ID (0=all non-zero)", "value": 0, "min": 0, "max": 255},
+            from_current={"label": "From current frame", "value": False},
         )
-        def sam2_propagate(label_id: int = 4):
-            # (Keep existing SAM2 logic exactly as is)
+        def sam2_propagate(label_id: int = 0, from_current: bool = False):
+            """
+            Use SAM2 to propagate mask(s) forward through video.
+
+            Steps:
+            1. Paint your mask(s) on the source frame using the Labels layer
+            2. (Optional) Check "From current frame" to start from current frame instead of frame 0
+            3. Set label_id to 0 to propagate ALL labels, or specify a single label ID
+            4. Click this button
+            5. SAM2 propagates forward to remaining frames
+            6. Review/edit with brush/eraser
+            7. Save with "Masks → Coordinates"
+            """
             if not SAM2_AVAILABLE:
-                warn("SAM2 not installed!")
+                warn(
+                    "SAM2 not installed!\n\n"
+                    "Install with:\n"
+                    "  pip install huggingface_hub\n"
+                    "  pip install git+https://github.com/facebookresearch/sam2.git"
+                )
                 return
+
+            # Determine start frame
+            start_frame = current_frame(self.viewer) if from_current else 0
+
+            # Get labels data
             labels_data = np.asarray(self.labels_layer.data)
+
+            # Get mask from source frame
             if labels_data.ndim == 3:
-                frame0_mask = (labels_data[0] == label_id).astype(np.uint8)
+                source_mask = labels_data[start_frame]
             else:
-                frame0_mask = (labels_data == label_id).astype(np.uint8)
+                source_mask = labels_data
 
-            if frame0_mask.sum() == 0:
-                warn(f"No mask found on frame 0 with label {label_id}.\nPlease paint a mask on frame 0 first.")
-                return
+            # Determine which label IDs to propagate
+            if label_id == 0:
+                # Auto-detect all non-zero labels
+                label_ids = np.unique(source_mask[source_mask > 0]).tolist()
+                if len(label_ids) == 0:
+                    warn(f"No masks found on frame {start_frame}.\n\n"
+                        f"Please paint mask(s) on frame {start_frame} first.")
+                    return
+                label_str = f"{len(label_ids)} label(s): {label_ids}"
+            else:
+                # Single label ID specified
+                if (source_mask == label_id).sum() == 0:
+                    warn(f"No mask found on frame {start_frame} with label {label_id}.\n\n"
+                        f"Please paint a mask with label {label_id} on frame {start_frame} first.")
+                    return
+                label_ids = [label_id]
+                label_str = f"label {label_id}"
 
-            info(f"Starting SAM2 propagation...")
+            info(f"Starting SAM2 propagation...\n"
+                f"Source frame: {start_frame}\n"
+                f"Propagating: {label_str}\n"
+                f"This may take a moment...")
 
             try:
-                output_masks = self._run_sam2(frame0_mask, label_id)
+                output_masks = self._run_sam2(
+                    source_frame_mask=source_mask,
+                    start_frame=start_frame,
+                    label_ids=label_ids
+                )
+
+                # Update labels layer
                 self.labels_layer.data = output_masks
                 self.labels_data = output_masks
-                info(f"SAM2 complete!")
+
+                frames_with_mask = np.sum(output_masks.max(axis=(1, 2)) > 0)
+                total_frames = output_masks.shape[0]
+
+                info(f"SAM2 complete!\n"
+                    f"Propagated from frame {start_frame} forward\n"
+                    f"Labels: {label_str}\n"
+                    f"Frames with mask: {frames_with_mask}/{total_frames}\n\n"
+                    f"You can now:\n"
+                    f"- Browse frames to review\n"
+                    f"- Edit with brush/eraser\n"
+                    f"- Save with 'Masks → Coordinates'")
+
             except Exception as e:
                 warn(f"SAM2 error: {str(e)}")
                 import traceback
                 traceback.print_exc()
+
 
         # Add panels to the right dock
         self.viewer.window.add_dock_widget(carry_forward, area="right")
@@ -294,22 +353,30 @@ class VectorLabelerApp:
             v.dims.current_step = (max(f - 1, 0),) + v.dims.current_step[1:]
 
     # ---------- SAM2 Implementation ----------
-    def _run_sam2(self, frame0_mask: np.ndarray, label_id: int) -> np.ndarray:
+    def _run_sam2(self, source_frame_mask: np.ndarray, start_frame: int = 0, label_ids: list = None) -> np.ndarray:
         """
-        Run SAM2 video propagation from frame 0 mask.
+        Run SAM2 video propagation from specified frame with support for multiple labels.
 
         Args:
-            frame0_mask: Binary mask (H, W) for frame 0
-            label_id: Label ID to assign to output masks
+            source_frame_mask: Label mask (H, W) from source frame (can contain multiple label IDs)
+            start_frame: Frame index to start propagation from
+            label_ids: List of label IDs to propagate. If None, auto-detect all non-zero labels
 
         Returns:
-            output_masks: (T, H, W) array with propagated masks
+            output_masks: (T, H, W) array with propagated masks, preserving label IDs
         """
         import tempfile
         import shutil
         import torch
         from PIL import Image
         from sam2.build_sam import build_sam2_video_predictor_hf
+
+        # Auto-detect label IDs if not provided
+        if label_ids is None:
+            label_ids = np.unique(source_frame_mask[source_frame_mask > 0]).tolist()
+
+        if len(label_ids) == 0:
+            raise ValueError("No labels found in source frame mask")
 
         # Detect device
         if torch.cuda.is_available():
@@ -320,6 +387,8 @@ class VectorLabelerApp:
             device = 'cpu'
 
         print(f"SAM2: Using device: {device}")
+        print(f"SAM2: Propagating {len(label_ids)} label(s): {label_ids}")
+        print(f"SAM2: Start frame: {start_frame}")
 
         # Create temp directory for video frames
         temp_dir = Path(tempfile.mkdtemp(prefix='sam2_frames_'))
@@ -357,29 +426,51 @@ class VectorLabelerApp:
             print("SAM2: Initializing video state...")
             inference_state = predictor.init_state(video_path=str(temp_dir))
 
-            # Add frame 0 mask as prompt
-            print(f"SAM2: Adding mask prompt ({frame0_mask.sum()} pixels)...")
-            _, obj_ids, mask_logits = predictor.add_new_mask(
-                inference_state=inference_state,
-                frame_idx=0,
-                obj_id=1,
-                mask=frame0_mask
-            )
+            # Add masks for all label IDs from source frame
+            for label_id in label_ids:
+                binary_mask = (source_frame_mask == label_id).astype(np.uint8)
+                pixel_count = binary_mask.sum()
+                print(f"SAM2: Adding label {label_id} ({pixel_count} pixels)...")
+
+                predictor.add_new_mask(
+                    inference_state=inference_state,
+                    frame_idx=start_frame,
+                    obj_id=label_id,  # Use actual label value as object ID
+                    mask=binary_mask
+                )
 
             # Propagate through video
             print("SAM2: Propagating through video...")
-            video_segments = {}
+            video_segments = {}  # {frame_idx: {label_id: mask}}
+
             for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
-                mask = (out_mask_logits[0] > 0.0).cpu().numpy().squeeze()
-                video_segments[out_frame_idx] = mask
-                print(f"  Frame {out_frame_idx}: {mask.sum()} pixels")
+                video_segments[out_frame_idx] = {}
+
+                # Process each object's mask
+                for obj_idx, obj_id in enumerate(out_obj_ids):
+                    mask = (out_mask_logits[obj_idx] > 0.0).cpu().numpy().squeeze()
+                    video_segments[out_frame_idx][obj_id] = mask
+                    print(f"  Frame {out_frame_idx}, Label {obj_id}: {mask.sum()} pixels")
+
+            # Get current labels data to preserve labels before start_frame
+            current_labels = np.asarray(self.labels_layer.data).copy()
 
             # Assemble output mask stack
-            output_masks = np.zeros((T, H, W), dtype=np.int32)
-            for frame_idx, mask in video_segments.items():
-                output_masks[frame_idx][mask > 0] = label_id
+            output_masks = current_labels.copy()  # Start with existing labels
 
-            print(f"SAM2: Done! Propagated to {len(video_segments)} frames")
+            # Only update frames from start_frame onwards
+            for frame_idx in range(start_frame, T):
+                if frame_idx in video_segments:
+                    # Clear only the label IDs we're propagating in this frame
+                    for label_id in label_ids:
+                        output_masks[frame_idx][output_masks[frame_idx] == label_id] = 0
+
+                    # Apply new masks for each label
+                    for label_id, mask in video_segments[frame_idx].items():
+                        output_masks[frame_idx][mask > 0] = label_id
+
+            propagated_frames = len([f for f in video_segments.keys() if f >= start_frame])
+            print(f"SAM2: Done! Propagated to {propagated_frames} frames (from frame {start_frame})")
             return output_masks
 
         finally:
