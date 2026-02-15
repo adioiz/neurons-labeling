@@ -36,10 +36,25 @@ python main.py
 | Button | Description |
 |--------|-------------|
 | **SAM2: Propagate from frame 0** | Propagates your painted mask to all frames |
+| **Use fine-tuned model** | Checkbox to use LoRA fine-tuned weights (if available) |
 | **Masks → Coordinates (ALL pixels)** | Save masks as CSV coordinate table |
 | **Carry forward labels** | Copy mask from previous frame |
 | **Clear labels (current frame)** | Erase current frame mask |
 | **Save labels stack** | Save as TIFF mask file |
+
+## Using Fine-Tuned Models
+
+This repo is **symlinked** to the training repo. Fine-tuned weights are automatically available:
+
+```
+checkpoints/ -> ../sam2-neuron-finetuning/checkpoints/
+```
+
+After training in `sam2-neuron-finetuning`, simply:
+1. Check the **"Use fine-tuned model"** checkbox in the GUI
+2. Click "SAM2: Propagate from frame 0"
+
+No manual copying needed - the symlink provides direct access to trained weights.
 
 ## CSV Output Format
 
@@ -62,16 +77,40 @@ frame,object_id,vertex_id,x,y
 
 ```
 neurons-labeling/
-├── main.py              # Entry point
-├── src/
-│   ├── gui.py           # Napari GUI with SAM2 integration
-│   ├── io.py            # CSV I/O utilities
-│   └── utils.py         # Helper functions
+├── main.py                  # Entry point
+├── coordinets_visualization.py
 ├── requirements.txt
-└── README.md
+├── labeled_masks/           # Your labeled mask TIFFs (source of truth)
+├── labeled_coordinates/     # Exported CSV coordinates
+├── checkpoints/             # Symlink -> ../sam2-neuron-finetuning/checkpoints
+└── src/
+    ├── gui.py               # Napari GUI with SAM2 + LoRA support
+    ├── io.py                # CSV I/O utilities
+    ├── utils.py             # Helper functions
+    └── lora_utils.py        # LoRA loading for inference
 ```
+
+## Repository Connection
+
+This repo is connected to `sam2-neuron-finetuning` via symlinks:
+
+| This Repo | Links To |
+|-----------|----------|
+| `checkpoints/` | `../sam2-neuron-finetuning/checkpoints/` |
+
+The training repo also symlinks back here:
+
+| Training Repo | Links To |
+|---------------|----------|
+| `labeled_masks/` | `../neurons-labeling/labeled_masks/` |
+| `labeled_coordinates/` | `../neurons-labeling/labeled_coordinates/` |
 
 ## Hardware
 
 - **GPU recommended**: CUDA (NVIDIA) or MPS (Apple Silicon)
 - **CPU**: Works but slower
+
+## Training Your Own Model
+
+To fine-tune SAM2 on your labeled data, use the companion repository:
+[sam2-neuron-finetuning](../sam2-neuron-finetuning/)

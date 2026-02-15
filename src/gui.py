@@ -44,6 +44,10 @@ class VectorLabelerApp:
         self.labels_data = None
         self.labels_layer = None
 
+        # SAM2 model cache
+        self._sam2_predictor = None
+        self._sam2_is_finetuned = None  # Track which variant is loaded
+
     # ---------- Entry point ----------
     def launch(self):
         """Load TIFF, create layers, dock widgets, hotkeys, and start Napari."""
@@ -71,11 +75,11 @@ class VectorLabelerApp:
         # --- 1. SETUP PATHS & NAMES ---
         # Get filename without extension (stem), replace spaces with underscores
         clean_stem = self.tiff_path.stem.replace(" ", "_")
-        
+
         # Define output directories
         mask_dir = Path("labeled_masks")
         coord_dir = Path("labeled_coordinates")
-        
+
         # Create directories if they don't exist
         mask_dir.mkdir(exist_ok=True, parents=True)
         coord_dir.mkdir(exist_ok=True, parents=True)
@@ -94,7 +98,7 @@ class VectorLabelerApp:
             if f == 0:
                 warn("At frame 0: nothing to carry forward.")
                 return
-            data = np.asarray(self.labels_layer.data) 
+            data = np.asarray(self.labels_layer.data)
             new_data = data.copy()
             new_data[f] = data[f - 1]
             self.labels_layer.data = new_data
@@ -108,7 +112,7 @@ class VectorLabelerApp:
             data = np.asarray(self.labels_layer.data)
             new_data = data.copy()
             new_data[f] = 0
-            self.labels_layer.data = new_data 
+            self.labels_layer.data = new_data
             info(f"Cleared labels at frame {f}.")
             self.labels_data = new_data
 
@@ -136,23 +140,23 @@ class VectorLabelerApp:
 
             for f in range(T):
                 m = lab[f] if lab.ndim == 3 else lab
-                
+
                 if label_id == 0:
                     mask = m > 0
                 else:
                     mask = m == int(label_id)
-                
+
                 if not mask.any():
                     continue
-                
+
                 num_frames_with_mask += 1
                 y_coords, x_coords = np.where(mask)
-                
+
                 for i in range(len(y_coords)):
                     rows.append({
                         "frame": int(f),
                         "object_id": int(object_id),
-                        "vertex_id": int(i), 
+                        "vertex_id": int(i),
                         "x": float(x_coords[i]),
                         "y": float(y_coords[i]),
                     })
@@ -164,10 +168,10 @@ class VectorLabelerApp:
             # Construct full path into labeled_coordinates folder
             full_path = coord_dir / csv_filename
             base = full_path.with_suffix("") # save_contours adds .csv automatically
-            
+
             # We reuse save_contours to save the rows
             out = save_contours(rows, base)
-            
+
             if out:
                 info(
                     f"Saved coordinates:\n"
@@ -189,14 +193,14 @@ class VectorLabelerApp:
             Saves to: labeled_masks/<out_filename>
             """
             self.labels_data = np.asarray(self.labels_layer.data).astype(np.int32)
-            
+
             # Construct full path into labeled_masks folder
             p = mask_dir / out_filename
-            
+
             imwrite(str(p), self.labels_data)
             msg = [f"Saved TIFF → {p} (shape {self.labels_data.shape})"]
             info("\n".join(msg))
-                
+
         @magicgui(
             call_button="Load labels from file → active layer",
             layout="vertical",
@@ -229,8 +233,9 @@ class VectorLabelerApp:
             layout="vertical",
             label_id={"label": "Label ID (0=all non-zero)", "value": 0, "min": 0, "max": 255},
             from_current={"label": "From current frame", "value": False},
+            use_finetuned={"label": "Use fine-tuned model", "value": True},
         )
-        def sam2_propagate(label_id: int = 0, from_current: bool = False):
+        def sam2_propagate(label_id: int = 0, from_current: bool = False, use_finetuned: bool = True):
             """
             Use SAM2 to propagate mask(s) forward through video.
 
@@ -238,10 +243,11 @@ class VectorLabelerApp:
             1. Paint your mask(s) on the source frame using the Labels layer
             2. (Optional) Check "From current frame" to start from current frame instead of frame 0
             3. Set label_id to 0 to propagate ALL labels, or specify a single label ID
-            4. Click this button
-            5. SAM2 propagates forward to remaining frames
-            6. Review/edit with brush/eraser
-            7. Save with "Masks → Coordinates"
+            4. Toggle "Use fine-tuned model" to use LoRA fine-tuned weights (if available)
+            5. Click this button
+            6. SAM2 propagates forward to remaining frames
+            7. Review/edit with brush/eraser
+            8. Save with "Masks → Coordinates"
             """
             if not SAM2_AVAILABLE:
                 warn(
@@ -282,7 +288,8 @@ class VectorLabelerApp:
                 label_ids = [label_id]
                 label_str = f"label {label_id}"
 
-            info(f"Starting SAM2 propagation...\n"
+            model_str = "fine-tuned" if use_finetuned else "base"
+            info(f"Starting SAM2 propagation ({model_str})...\n"
                 f"Source frame: {start_frame}\n"
                 f"Propagating: {label_str}\n"
                 f"This may take a moment...")
@@ -291,7 +298,8 @@ class VectorLabelerApp:
                 output_masks = self._run_sam2(
                     source_frame_mask=source_mask,
                     start_frame=start_frame,
-                    label_ids=label_ids
+                    label_ids=label_ids,
+                    use_finetuned=use_finetuned,
                 )
 
                 # Update labels layer
@@ -301,7 +309,7 @@ class VectorLabelerApp:
                 frames_with_mask = np.sum(output_masks.max(axis=(1, 2)) > 0)
                 total_frames = output_masks.shape[0]
 
-                info(f"SAM2 complete!\n"
+                info(f"SAM2 complete! ({model_str})\n"
                     f"Propagated from frame {start_frame} forward\n"
                     f"Labels: {label_str}\n"
                     f"Frames with mask: {frames_with_mask}/{total_frames}\n\n"
@@ -353,7 +361,82 @@ class VectorLabelerApp:
             v.dims.current_step = (max(f - 1, 0),) + v.dims.current_step[1:]
 
     # ---------- SAM2 Implementation ----------
-    def _run_sam2(self, source_frame_mask: np.ndarray, start_frame: int = 0, label_ids: list = None) -> np.ndarray:
+
+    def _load_sam2_predictor(self, use_finetuned: bool = True, device: str = "cpu"):
+        """
+        Load or return cached SAM2 video predictor.
+
+        If use_finetuned is True and a LoRA checkpoint exists at
+        checkpoints/lora_weights.pt, loads the base model with LoRA adapters.
+        Otherwise falls back to the base SAM2 model.
+
+        The predictor is cached so subsequent calls don't reload the model.
+        """
+        from sam2.build_sam import build_sam2_video_predictor_hf
+
+        # Return cached predictor if variant matches
+        if (
+            self._sam2_predictor is not None
+            and self._sam2_is_finetuned == use_finetuned
+        ):
+            return self._sam2_predictor
+
+        lora_path = Path("checkpoints") / "lora_weights.pt"
+        actually_finetuned = False
+
+        if use_finetuned and lora_path.exists():
+            print("SAM2: Loading base model + LoRA fine-tuned weights...")
+            try:
+                from src.lora_utils import apply_lora, load_lora_weights, SAM2_LORA_TARGETS
+                from sam2.build_sam import build_sam2_video_predictor, _hf_download
+
+                config_name, ckpt_path = _hf_download("facebook/sam2.1-hiera-tiny")
+                predictor = build_sam2_video_predictor(
+                    config_file=config_name,
+                    ckpt_path=ckpt_path,
+                    device=device,
+                    mode="eval",
+                )
+
+                # Apply LoRA structure and load weights
+                apply_lora(predictor, target_patterns=SAM2_LORA_TARGETS)
+                load_lora_weights(predictor, str(lora_path), device=device)
+                predictor.eval()
+                actually_finetuned = True
+                print("SAM2: Fine-tuned model loaded successfully")
+
+            except Exception as e:
+                print(f"SAM2: Failed to load fine-tuned model: {e}")
+                print("SAM2: Falling back to base model...")
+                predictor = build_sam2_video_predictor_hf(
+                    "facebook/sam2.1-hiera-tiny",
+                    device=device,
+                )
+        elif use_finetuned and not lora_path.exists():
+            print("SAM2: No fine-tuned checkpoint found at checkpoints/lora_weights.pt")
+            print("SAM2: Using base model. Train a model to create fine-tuned weights.")
+            predictor = build_sam2_video_predictor_hf(
+                "facebook/sam2.1-hiera-tiny",
+                device=device,
+            )
+        else:
+            print("SAM2: Loading base model (tiny)...")
+            predictor = build_sam2_video_predictor_hf(
+                "facebook/sam2.1-hiera-tiny",
+                device=device,
+            )
+
+        self._sam2_predictor = predictor
+        self._sam2_is_finetuned = actually_finetuned
+        return predictor
+
+    def _run_sam2(
+        self,
+        source_frame_mask: np.ndarray,
+        start_frame: int = 0,
+        label_ids: list = None,
+        use_finetuned: bool = True,
+    ) -> np.ndarray:
         """
         Run SAM2 video propagation from specified frame with support for multiple labels.
 
@@ -361,6 +444,7 @@ class VectorLabelerApp:
             source_frame_mask: Label mask (H, W) from source frame (can contain multiple label IDs)
             start_frame: Frame index to start propagation from
             label_ids: List of label IDs to propagate. If None, auto-detect all non-zero labels
+            use_finetuned: If True, attempt to load LoRA fine-tuned model
 
         Returns:
             output_masks: (T, H, W) array with propagated masks, preserving label IDs
@@ -369,7 +453,6 @@ class VectorLabelerApp:
         import shutil
         import torch
         from PIL import Image
-        from sam2.build_sam import build_sam2_video_predictor_hf
 
         # Auto-detect label IDs if not provided
         if label_ids is None:
@@ -415,11 +498,9 @@ class VectorLabelerApp:
                 img = Image.fromarray(frame_rgb)
                 img.save(temp_dir / f'{i:05d}.jpg')
 
-            # Load SAM2 model
-            print("SAM2: Loading model (tiny)...")
-            predictor = build_sam2_video_predictor_hf(
-                "facebook/sam2.1-hiera-tiny",
-                device=device
+            # Load SAM2 model (cached, with optional LoRA)
+            predictor = self._load_sam2_predictor(
+                use_finetuned=use_finetuned, device=device
             )
 
             # Initialize video state

@@ -17,3 +17,6 @@ venv/
 # Outputs
 *.csv
 outputs/
+
+# Symlinks to other repos
+checkpoints
