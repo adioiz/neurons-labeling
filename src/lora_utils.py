@@ -2,7 +2,7 @@
 LoRA (Low-Rank Adaptation) utilities for SAM2 fine-tuned model loading.
 
 This module contains only the inference-related LoRA code needed to load
-fine-tuned model weights. For training, see the sam2-neuron-finetuning repository.
+fine-tuned model weights. For training, see the Fine-tune-SAM2-model-for-Neurons-segmentation repository.
 """
 
 import re

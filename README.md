@@ -47,10 +47,10 @@ python main.py
 This repo is **symlinked** to the training repo. Fine-tuned weights are automatically available:
 
 ```
-checkpoints/ -> ../sam2-neuron-finetuning/checkpoints/
+checkpoints/ -> ../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints/
 ```
 
-After training in `sam2-neuron-finetuning`, simply:
+After training in `Fine-tune-SAM2-model-for-Neurons-segmentation`, simply:
 1. Check the **"Use fine-tuned model"** checkbox in the GUI
 2. Click "SAM2: Propagate from frame 0"
 
@@ -82,7 +82,7 @@ neurons-labeling/
 ├── requirements.txt
 ├── labeled_masks/           # Your labeled mask TIFFs (source of truth)
 ├── labeled_coordinates/     # Exported CSV coordinates
-├── checkpoints/             # Symlink -> ../sam2-neuron-finetuning/checkpoints
+├── checkpoints/             # Symlink -> ../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints
 └── src/
     ├── gui.py               # Napari GUI with SAM2 + LoRA support
     ├── io.py                # CSV I/O utilities
@@ -92,11 +92,11 @@ neurons-labeling/
 
 ## Repository Connection
 
-This repo is connected to `sam2-neuron-finetuning` via symlinks:
+This repo is connected to `Fine-tune-SAM2-model-for-Neurons-segmentation` via symlinks:
 
 | This Repo | Links To |
 |-----------|----------|
-| `checkpoints/` | `../sam2-neuron-finetuning/checkpoints/` |
+| `checkpoints/` | `../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints/` |
 
 The training repo also symlinks back here:
 
@@ -113,4 +113,4 @@ The training repo also symlinks back here:
 ## Training Your Own Model
 
 To fine-tune SAM2 on your labeled data, use the companion repository:
-[sam2-neuron-finetuning](../sam2-neuron-finetuning/)
+[Fine-tune-SAM2-model-for-Neurons-segmentation](../Fine-tune-SAM2-model-for-Neurons-segmentation/)
