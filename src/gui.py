@@ -387,7 +387,7 @@ class VectorLabelerApp:
         if use_finetuned and lora_path.exists():
             print("SAM2: Loading base model + LoRA fine-tuned weights...")
             try:
-                from src.lora_utils import apply_lora, load_lora_weights, SAM2_LORA_TARGETS
+                from src.training.lora import apply_lora, load_lora_weights, SAM2_LORA_TARGETS
                 from sam2.build_sam import build_sam2_video_predictor, _hf_download
 
                 config_name, ckpt_path = _hf_download("facebook/sam2.1-hiera-tiny")
@@ -414,7 +414,7 @@ class VectorLabelerApp:
                 )
         elif use_finetuned and not lora_path.exists():
             print("SAM2: No fine-tuned checkpoint found at checkpoints/lora_weights.pt")
-            print("SAM2: Using base model. Train a model to create fine-tuned weights.")
+            print("SAM2: Using base model. Run train.py to create fine-tuned weights.")
             predictor = build_sam2_video_predictor_hf(
                 "facebook/sam2.1-hiera-tiny",
                 device=device,
