@@ -7,10 +7,10 @@ from pathlib import Path
 from src.gui import VectorLabelerApp
 
 def main():
-    tiff_path = Path("/Volumes/Adi-SSD/EfratData/IncuCyte cortex 010823 uptake/A11.tif")
+    tiff_path = Path("/Volumes/Adi-SSD/EfratData/דאטה מסודר לאלון/IncuCyte cortex 180723/right/distance in pixel 300, known distance 200,pixel aspect ratio 1, unit of length micron, 1.5 pixel to micron/צפיפות/tif/A32 C2.tif")
     app = VectorLabelerApp(tiff_path)
     app.launch()
-
+ 
 if __name__ == "__main__":
     main()
 

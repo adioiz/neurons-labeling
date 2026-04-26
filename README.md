@@ -44,17 +44,28 @@ python main.py
 
 ## Using Fine-Tuned Models
 
-This repo is **symlinked** to the training repo. Fine-tuned weights are automatically available:
+The GUI resolves the LoRA checkpoint by checking these locations in order:
 
-```
-checkpoints/ -> ../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints/
-```
+1. `$SAM2_LORA_WEIGHTS` (environment variable, if set)
+2. `/Users/adioiz/Documents/Learnings/Thesis/scripts/Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints/lora_weights.pt` (absolute fallback)
+3. `../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints/lora_weights.pt` (sibling-repo)
+4. `checkpoints/lora_weights.pt` (in this repo, e.g. via symlink)
 
-After training in `Fine-tune-SAM2-model-for-Neurons-segmentation`, simply:
+After training in `Fine-tune-SAM2-model-for-Neurons-segmentation`:
 1. Check the **"Use fine-tuned model"** checkbox in the GUI
-2. Click "SAM2: Propagate from frame 0"
+2. Click "SAM2: Propagate labels"
 
-No manual copying needed - the symlink provides direct access to trained weights.
+If the fine-tuned checkpoint can't be found or loaded, the GUI shows a
+warning explaining why and falls back to the base SAM 2 model. The
+"SAM2 complete!" message reports which model was actually used, so a
+silent fallback is no longer possible.
+
+To override the lookup explicitly:
+
+```bash
+export SAM2_LORA_WEIGHTS=/path/to/lora_weights.pt
+python main.py
+```
 
 ## CSV Output Format
 
@@ -82,7 +93,7 @@ neurons-labeling/
 ├── requirements.txt
 ├── labeled_masks/           # Your labeled mask TIFFs (source of truth)
 ├── labeled_coordinates/     # Exported CSV coordinates
-├── checkpoints/             # Symlink -> ../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints
+├── checkpoints/             # Optional symlink -> ../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints (the GUI also accepts SAM2_LORA_WEIGHTS / sibling-repo paths)
 └── src/
     ├── gui.py               # Napari GUI with SAM2 + LoRA support
     ├── io.py                # CSV I/O utilities

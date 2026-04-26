@@ -20,6 +20,29 @@ except ImportError:
     SAM2_AVAILABLE = False
 
 
+# Candidate locations for fine-tuned LoRA weights, tried in order.
+# Override with the SAM2_LORA_WEIGHTS environment variable.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+LORA_PATH_CANDIDATES = [
+    Path("/Users/adioiz/Documents/Learnings/Thesis/scripts/Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints/lora_weights.pt"),
+    _REPO_ROOT.parent / "Fine-tune-SAM2-model-for-Neurons-segmentation" / "checkpoints" / "lora_weights.pt",
+    _REPO_ROOT / "checkpoints" / "lora_weights.pt",
+]
+
+
+def _resolve_lora_path():
+    """Return the first existing LoRA checkpoint path, or None."""
+    env = os.environ.get("SAM2_LORA_WEIGHTS")
+    if env:
+        p = Path(env).expanduser()
+        if p.exists():
+            return p
+    for p in LORA_PATH_CANDIDATES:
+        if p.exists():
+            return p
+    return None
+
+
 class VectorLabelerApp:
     """
     Napari-based manual vector & mask labeler:
@@ -288,14 +311,14 @@ class VectorLabelerApp:
                 label_ids = [label_id]
                 label_str = f"label {label_id}"
 
-            model_str = "fine-tuned" if use_finetuned else "base"
-            info(f"Starting SAM2 propagation ({model_str})...\n"
+            requested_str = "fine-tuned" if use_finetuned else "base"
+            info(f"Starting SAM2 propagation ({requested_str})...\n"
                 f"Source frame: {start_frame}\n"
                 f"Propagating: {label_str}\n"
                 f"This may take a moment...")
 
             try:
-                output_masks = self._run_sam2(
+                output_masks, actually_finetuned = self._run_sam2(
                     source_frame_mask=source_mask,
                     start_frame=start_frame,
                     label_ids=label_ids,
@@ -309,7 +332,8 @@ class VectorLabelerApp:
                 frames_with_mask = np.sum(output_masks.max(axis=(1, 2)) > 0)
                 total_frames = output_masks.shape[0]
 
-                info(f"SAM2 complete! ({model_str})\n"
+                actual_str = "fine-tuned" if actually_finetuned else "base"
+                info(f"SAM2 complete! (model used: {actual_str})\n"
                     f"Propagated from frame {start_frame} forward\n"
                     f"Labels: {label_str}\n"
                     f"Frames with mask: {frames_with_mask}/{total_frames}\n\n"
@@ -366,11 +390,14 @@ class VectorLabelerApp:
         """
         Load or return cached SAM2 video predictor.
 
-        If use_finetuned is True and a LoRA checkpoint exists at
-        checkpoints/lora_weights.pt, loads the base model with LoRA adapters.
-        Otherwise falls back to the base SAM2 model.
+        When use_finetuned is True, loads the base SAM 2 model with LoRA adapters
+        from a fine-tuned checkpoint resolved via _resolve_lora_path(). If the
+        checkpoint can't be found or loaded, raises — callers must decide whether
+        to fall back to the base model. Never silently swaps in the base model
+        while the caller still believes the fine-tuned weights are active.
 
-        The predictor is cached so subsequent calls don't reload the model.
+        Returns the predictor; the caller should read self._sam2_is_finetuned
+        to know which variant is active.
         """
         from sam2.build_sam import build_sam2_video_predictor_hf
 
@@ -381,53 +408,44 @@ class VectorLabelerApp:
         ):
             return self._sam2_predictor
 
-        lora_path = Path("checkpoints") / "lora_weights.pt"
-        actually_finetuned = False
-
-        if use_finetuned and lora_path.exists():
-            print("SAM2: Loading base model + LoRA fine-tuned weights...")
-            try:
-                from src.lora_utils import apply_lora, load_lora_weights, SAM2_LORA_TARGETS
-                from sam2.build_sam import build_sam2_video_predictor, _hf_download
-
-                config_name, ckpt_path = _hf_download("facebook/sam2.1-hiera-tiny")
-                predictor = build_sam2_video_predictor(
-                    config_file=config_name,
-                    ckpt_path=ckpt_path,
-                    device=device,
-                    mode="eval",
+        if use_finetuned:
+            lora_path = _resolve_lora_path()
+            if lora_path is None:
+                searched = "\n  ".join(str(p) for p in LORA_PATH_CANDIDATES)
+                raise FileNotFoundError(
+                    "Fine-tuned LoRA checkpoint not found. Searched:\n  "
+                    + searched
+                    + "\nSet SAM2_LORA_WEIGHTS to override."
                 )
 
-                # Apply LoRA structure and load weights
-                apply_lora(predictor, target_patterns=SAM2_LORA_TARGETS)
-                load_lora_weights(predictor, str(lora_path), device=device)
-                predictor.eval()
-                actually_finetuned = True
-                print("SAM2: Fine-tuned model loaded successfully")
+            print(f"SAM2: Loading base model + LoRA fine-tuned weights from {lora_path}...")
+            from src.lora_utils import apply_lora, load_lora_weights, SAM2_LORA_TARGETS
+            from sam2.build_sam import build_sam2_video_predictor, _hf_download
 
-            except Exception as e:
-                print(f"SAM2: Failed to load fine-tuned model: {e}")
-                print("SAM2: Falling back to base model...")
-                predictor = build_sam2_video_predictor_hf(
-                    "facebook/sam2.1-hiera-tiny",
-                    device=device,
-                )
-        elif use_finetuned and not lora_path.exists():
-            print("SAM2: No fine-tuned checkpoint found at checkpoints/lora_weights.pt")
-            print("SAM2: Using base model. Train a model to create fine-tuned weights.")
-            predictor = build_sam2_video_predictor_hf(
-                "facebook/sam2.1-hiera-tiny",
+            config_name, ckpt_path = _hf_download("facebook/sam2.1-hiera-tiny")
+            predictor = build_sam2_video_predictor(
+                config_file=config_name,
+                ckpt_path=ckpt_path,
                 device=device,
-            )
-        else:
-            print("SAM2: Loading base model (tiny)...")
-            predictor = build_sam2_video_predictor_hf(
-                "facebook/sam2.1-hiera-tiny",
-                device=device,
+                mode="eval",
             )
 
+            apply_lora(predictor, target_patterns=SAM2_LORA_TARGETS)
+            load_lora_weights(predictor, str(lora_path), device=device)
+            predictor.eval()
+            print("SAM2: Fine-tuned model loaded successfully")
+
+            self._sam2_predictor = predictor
+            self._sam2_is_finetuned = True
+            return predictor
+
+        print("SAM2: Loading base model (tiny)...")
+        predictor = build_sam2_video_predictor_hf(
+            "facebook/sam2.1-hiera-tiny",
+            device=device,
+        )
         self._sam2_predictor = predictor
-        self._sam2_is_finetuned = actually_finetuned
+        self._sam2_is_finetuned = False
         return predictor
 
     def _run_sam2(
@@ -436,7 +454,7 @@ class VectorLabelerApp:
         start_frame: int = 0,
         label_ids: list = None,
         use_finetuned: bool = True,
-    ) -> np.ndarray:
+    ):
         """
         Run SAM2 video propagation from specified frame with support for multiple labels.
 
@@ -444,10 +462,14 @@ class VectorLabelerApp:
             source_frame_mask: Label mask (H, W) from source frame (can contain multiple label IDs)
             start_frame: Frame index to start propagation from
             label_ids: List of label IDs to propagate. If None, auto-detect all non-zero labels
-            use_finetuned: If True, attempt to load LoRA fine-tuned model
+            use_finetuned: If True, attempt to load LoRA fine-tuned model. If the
+                fine-tuned checkpoint can't be loaded, the user is warned and
+                propagation falls back to the base model.
 
         Returns:
-            output_masks: (T, H, W) array with propagated masks, preserving label IDs
+            (output_masks, actually_finetuned):
+                output_masks: (T, H, W) array with propagated masks, preserving label IDs
+                actually_finetuned: True iff the LoRA fine-tuned weights were used
         """
         import tempfile
         import shutil
@@ -498,10 +520,26 @@ class VectorLabelerApp:
                 img = Image.fromarray(frame_rgb)
                 img.save(temp_dir / f'{i:05d}.jpg')
 
-            # Load SAM2 model (cached, with optional LoRA)
-            predictor = self._load_sam2_predictor(
-                use_finetuned=use_finetuned, device=device
-            )
+            # Load SAM2 model (cached, with optional LoRA). If the fine-tuned
+            # load fails, surface the reason to the user and fall back to base —
+            # but only after telling them, so the success message can't lie.
+            try:
+                predictor = self._load_sam2_predictor(
+                    use_finetuned=use_finetuned, device=device
+                )
+            except Exception as e:
+                if use_finetuned:
+                    import traceback
+                    traceback.print_exc()
+                    warn(
+                        "Failed to load fine-tuned model — falling back to base SAM 2.\n\n"
+                        f"Reason: {e}"
+                    )
+                    predictor = self._load_sam2_predictor(
+                        use_finetuned=False, device=device
+                    )
+                else:
+                    raise
 
             # Initialize video state
             print("SAM2: Initializing video state...")
@@ -552,7 +590,7 @@ class VectorLabelerApp:
 
             propagated_frames = len([f for f in video_segments.keys() if f >= start_frame])
             print(f"SAM2: Done! Propagated to {propagated_frames} frames (from frame {start_frame})")
-            return output_masks
+            return output_masks, bool(self._sam2_is_finetuned)
 
         finally:
             # Cleanup
