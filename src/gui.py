@@ -24,9 +24,9 @@ except ImportError:
 # Override with the SAM2_LORA_WEIGHTS environment variable.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 LORA_PATH_CANDIDATES = [
-    Path("/Users/adioiz/Documents/Learnings/Thesis/scripts/Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints/lora_weights.pt"),
-    _REPO_ROOT.parent / "Fine-tune-SAM2-model-for-Neurons-segmentation" / "checkpoints" / "lora_weights.pt",
-    _REPO_ROOT / "checkpoints" / "lora_weights.pt",
+    Path("/Users/adioiz/Documents/Learnings/Thesis/scripts/Fine-tune-SAM2-model-for-Neurons-segmentation/gpu-checkpoints/lora_weights.pt"),
+    _REPO_ROOT.parent / "Fine-tune-SAM2-model-for-Neurons-segmentation" / "gpu-checkpoints" / "lora_weights.pt",
+    _REPO_ROOT / "gpu-checkpoints" / "lora_weights.pt",
 ]
 
 
@@ -590,6 +590,42 @@ class VectorLabelerApp:
 
             propagated_frames = len([f for f in video_segments.keys() if f >= start_frame])
             print(f"SAM2: Done! Propagated to {propagated_frames} frames (from frame {start_frame})")
+
+            # Comparison-friendly per-frame coverage summary. Print this as a
+            # self-contained block so it can be eyeballed side-by-side across
+            # base vs fine-tuned runs in the same terminal session.
+            model_tag = "fine-tuned" if self._sam2_is_finetuned else "base"
+            sorted_label_ids = sorted(label_ids)
+            label_headers = [f"L{lid}" for lid in sorted_label_ids]
+            col_w = max(8, *(len(h) + 2 for h in label_headers))
+
+            print("=" * 72)
+            print(f"SAM2 coverage report  |  model: {model_tag}  |  start_frame: {start_frame}")
+            print(f"Label IDs propagated: {sorted_label_ids}")
+            header = f"{'frame':>6} | " + " | ".join(f"{h:>{col_w}}" for h in label_headers) + f" | {'total':>10}"
+            print(header)
+            print("-" * len(header))
+
+            running_totals = {lid: 0 for lid in sorted_label_ids}
+            grand_total = 0
+            for f in sorted(video_segments.keys()):
+                per_label_counts = []
+                frame_total = 0
+                for lid in sorted_label_ids:
+                    mask = video_segments[f].get(lid)
+                    n = int(mask.sum()) if mask is not None else 0
+                    per_label_counts.append(n)
+                    running_totals[lid] += n
+                    frame_total += n
+                grand_total += frame_total
+                cells = " | ".join(f"{n:>{col_w},}" for n in per_label_counts)
+                print(f"{f:>6} | {cells} | {frame_total:>10,}")
+
+            print("-" * len(header))
+            totals_cells = " | ".join(f"{running_totals[lid]:>{col_w},}" for lid in sorted_label_ids)
+            print(f"{'TOTAL':>6} | {totals_cells} | {grand_total:>10,}")
+            print("=" * 72)
+
             return output_masks, bool(self._sam2_is_finetuned)
 
         finally:
