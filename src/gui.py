@@ -71,6 +71,13 @@ class VectorLabelerApp:
         self._sam2_predictor = None
         self._sam2_is_finetuned = None  # Track which variant is loaded
 
+        # SAM2 propagation history: list of dicts, one per run, persisted for
+        # the lifetime of this VectorLabelerApp so a base run and a fine-tuned
+        # run done one after the other can be compared side-by-side.
+        # Each entry: {"model": str, "start_frame": int, "label_ids": list[int],
+        #              "per_frame": {frame_idx: {label_id: pixel_count}}}
+        self._sam2_run_history = []
+
     # ---------- Entry point ----------
     def launch(self):
         """Load TIFF, create layers, dock widgets, hotkeys, and start Napari."""
@@ -386,6 +393,74 @@ class VectorLabelerApp:
 
     # ---------- SAM2 Implementation ----------
 
+    def _print_sam2_session_comparison(self):
+        """
+        Print every SAM2 propagation run from this session in a single side-by-side
+        table. One column per run, rows are frame indices. Each cell is the total
+        pixel count for that run's propagated labels in that frame. Lets the user
+        run base, then fine-tuned (or vice versa) and visually compare without
+        having to scroll back through individual run reports.
+        """
+        history = self._sam2_run_history
+        if not history:
+            return
+
+        # Build a compact tag for each run: "#1 base L4" / "#2 ft L4,7"
+        col_tags = []
+        for i, run in enumerate(history, start=1):
+            label_part = ",".join(str(l) for l in run["label_ids"])
+            short_model = "ft" if run["model"] == "fine-tuned" else "base"
+            col_tags.append(f"#{i} {short_model} L{label_part}")
+
+        col_w = max(10, *(len(t) for t in col_tags))
+
+        # Union of all frames seen across all runs
+        all_frames = sorted({f for run in history for f in run["per_frame"].keys()})
+
+        header = f"{'frame':>6} | " + " | ".join(f"{t:>{col_w}}" for t in col_tags)
+        sep = "=" * len(header)
+        thin = "-" * len(header)
+
+        print()
+        print(sep)
+        print(f"SAM2 session comparison  |  {len(history)} run(s)")
+        for i, run in enumerate(history, start=1):
+            print(f"  #{i}: model={run['model']:<10}  start_frame={run['start_frame']}  labels={run['label_ids']}")
+        print(thin)
+        print(header)
+        print(thin)
+
+        col_totals = [0 for _ in history]
+        for f in all_frames:
+            cells = []
+            for i, run in enumerate(history):
+                per_label = run["per_frame"].get(f)
+                if per_label is None:
+                    cells.append(f"{'-':>{col_w}}")
+                else:
+                    n = sum(per_label.values())
+                    col_totals[i] += n
+                    cells.append(f"{n:>{col_w},}")
+            print(f"{f:>6} | " + " | ".join(cells))
+
+        print(thin)
+        totals_cells = " | ".join(f"{n:>{col_w},}" for n in col_totals)
+        print(f"{'TOTAL':>6} | {totals_cells}")
+
+        # Pairwise diffs are handy when comparing exactly two runs (the
+        # canonical base vs fine-tuned case)
+        if len(history) >= 2:
+            base_totals = col_totals
+            print(thin)
+            print("Pairwise totals delta (col_j - col_i, positive = j has more pixels):")
+            for i in range(len(history)):
+                for j in range(i + 1, len(history)):
+                    delta = base_totals[j] - base_totals[i]
+                    pct = (delta / base_totals[i] * 100.0) if base_totals[i] else float('nan')
+                    print(f"  #{j+1} vs #{i+1}: {delta:+,} px  ({pct:+.2f}%)")
+
+        print(sep)
+
     def _load_sam2_predictor(self, use_finetuned: bool = True, device: str = "cpu"):
         """
         Load or return cached SAM2 video predictor.
@@ -608,13 +683,16 @@ class VectorLabelerApp:
 
             running_totals = {lid: 0 for lid in sorted_label_ids}
             grand_total = 0
+            per_frame_counts = {}  # {frame_idx: {label_id: pixel_count}} for history
             for f in sorted(video_segments.keys()):
                 per_label_counts = []
                 frame_total = 0
+                per_frame_counts[f] = {}
                 for lid in sorted_label_ids:
                     mask = video_segments[f].get(lid)
                     n = int(mask.sum()) if mask is not None else 0
                     per_label_counts.append(n)
+                    per_frame_counts[f][lid] = n
                     running_totals[lid] += n
                     frame_total += n
                 grand_total += frame_total
@@ -625,6 +703,17 @@ class VectorLabelerApp:
             totals_cells = " | ".join(f"{running_totals[lid]:>{col_w},}" for lid in sorted_label_ids)
             print(f"{'TOTAL':>6} | {totals_cells} | {grand_total:>10,}")
             print("=" * 72)
+
+            # Append this run to the session history and re-print the
+            # cross-run comparison so the user can compare base vs fine-tuned
+            # (or any sequence of runs) without re-running anything.
+            self._sam2_run_history.append({
+                "model": model_tag,
+                "start_frame": start_frame,
+                "label_ids": sorted_label_ids,
+                "per_frame": per_frame_counts,
+            })
+            self._print_sam2_session_comparison()
 
             return output_masks, bool(self._sam2_is_finetuned)
 
