@@ -494,7 +494,12 @@ class VectorLabelerApp:
                 )
 
             print(f"SAM2: Loading base model + LoRA fine-tuned weights from {lora_path}...")
-            from src.lora_utils import apply_lora, load_lora_weights, SAM2_LORA_TARGETS
+            from src.lora_utils import (
+                apply_lora,
+                load_lora_weights,
+                detect_lora_config_from_checkpoint,
+                SAM2_LORA_TARGETS,
+            )
             from sam2.build_sam import build_sam2_video_predictor, _hf_download
 
             config_name, ckpt_path = _hf_download("facebook/sam2.1-hiera-tiny")
@@ -505,7 +510,21 @@ class VectorLabelerApp:
                 mode="eval",
             )
 
-            apply_lora(predictor, target_patterns=SAM2_LORA_TARGETS)
+            # Auto-detect rank from the checkpoint so the in-memory LoRA
+            # layers match the saved tensor shapes. Without this, a rank-8
+            # default here would fail to load a rank-16 checkpoint with
+            # "tensor size 8 must match size 16" — and vice versa.
+            lora_cfg = detect_lora_config_from_checkpoint(str(lora_path))
+            print(
+                f"SAM2: detected LoRA rank={lora_cfg['rank']}, "
+                f"alpha={lora_cfg['alpha']} from checkpoint"
+            )
+            apply_lora(
+                predictor,
+                target_patterns=SAM2_LORA_TARGETS,
+                rank=lora_cfg["rank"],
+                alpha=lora_cfg["alpha"],
+            )
             load_lora_weights(predictor, str(lora_path), device=device)
             predictor.eval()
             print("SAM2: Fine-tuned model loaded successfully")

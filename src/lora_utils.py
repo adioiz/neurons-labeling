@@ -133,6 +133,39 @@ def apply_lora(
     return wrapped_names
 
 
+def detect_lora_config_from_checkpoint(path: str) -> dict:
+    """Read a saved LoRA checkpoint and infer (rank, alpha) from the tensors.
+
+    The checkpoint's lora_A weight tensors have shape [rank, in_features],
+    so the rank can be read directly. Alpha is not saved, but our training
+    pipeline uses the convention alpha = 2 * rank (scale = 2.0), so we
+    return that. If you ever break that convention, override at call site.
+
+    Returns a dict with keys: rank, alpha.
+    Raises ValueError if the checkpoint has no recognisable LoRA tensors.
+    """
+    checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+    lora_state = checkpoint.get("lora_state_dict", {})
+
+    detected_rank = None
+    for key, tensor in lora_state.items():
+        # We're looking for any lora_A weight: shape [rank, in_features]
+        if key.endswith(".lora_A.weight"):
+            detected_rank = int(tensor.shape[0])
+            break
+
+    if detected_rank is None:
+        raise ValueError(
+            f"Could not detect LoRA rank from {path}: no lora_A.weight "
+            f"tensors found in the checkpoint."
+        )
+
+    return {
+        "rank": detected_rank,
+        "alpha": float(2 * detected_rank),  # our training convention: scale = 2.0
+    }
+
+
 def _normalize_key(key: str) -> str:
     """Remove 'model.' prefix from key for consistent storage."""
     if key.startswith("model."):
