@@ -75,6 +75,16 @@ SAM2_LORA_TARGETS = [
 ]
 
 
+# Hiera encoder last-stage LoRA targets. Used in Run 6 onwards — the training
+# pipeline applies a SECOND LoRA pass on the last 2 trunk blocks of Hiera
+# (indices 10, 11 for hiera-tiny) at a smaller rank than the main LoRA.
+# At inference we need to mirror this so the checkpoint loads cleanly.
+HIERA_LAST_STAGE_LORA_TARGETS = [
+    r"(model\.)?image_encoder\.trunk\.blocks\.(10|11)\.attn\.(qkv|proj)",
+    r"(model\.)?image_encoder\.trunk\.blocks\.(10|11)\.mlp\.layers\.\d+",
+]
+
+
 def _matches_any_pattern(name: str, patterns: List[str]) -> bool:
     """Check if a module name matches any of the target patterns."""
     return any(re.fullmatch(p, name) for p in patterns)
@@ -134,36 +144,59 @@ def apply_lora(
 
 
 def detect_lora_config_from_checkpoint(path: str) -> dict:
-    """Read a saved LoRA checkpoint and infer (rank, alpha) from the tensors.
+    """Read a saved LoRA checkpoint and infer per-target-group rank/alpha.
 
     The checkpoint's lora_A weight tensors have shape [rank, in_features],
-    so the rank can be read directly. Alpha is not saved, but our training
-    pipeline uses the convention alpha = 2 * rank (scale = 2.0), so we
-    return that. If you ever break that convention, override at call site.
+    so the rank can be read directly. Run 6 introduced a SECOND LoRA pass on
+    the Hiera encoder's last-stage blocks at a smaller rank than the main
+    LoRA — so a single global rank is no longer enough to describe the
+    checkpoint. We classify each lora_A tensor by its module-name prefix
+    and pick a rank per group.
 
-    Returns a dict with keys: rank, alpha.
-    Raises ValueError if the checkpoint has no recognisable LoRA tensors.
+    Alpha is not saved, but our training pipeline uses the convention
+    alpha = 2 * rank (scale = 2.0).
+
+    Returns a dict:
+        {
+            "main":  {"rank": int, "alpha": float},   # required
+            "hiera": {"rank": int, "alpha": float}    # optional, None if absent
+        }
+
+    Raises ValueError if no main-target lora_A tensors are found.
     """
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
     lora_state = checkpoint.get("lora_state_dict", {})
 
-    detected_rank = None
-    for key, tensor in lora_state.items():
-        # We're looking for any lora_A weight: shape [rank, in_features]
-        if key.endswith(".lora_A.weight"):
-            detected_rank = int(tensor.shape[0])
-            break
+    main_rank = None
+    hiera_rank = None
 
-    if detected_rank is None:
+    for key, tensor in lora_state.items():
+        if not key.endswith(".lora_A.weight"):
+            continue
+        rank = int(tensor.shape[0])
+        # Strip the trailing ".lora_A.weight" so we can match the regex
+        # against the underlying module path the same way apply_lora does.
+        module_name = key[: -len(".lora_A.weight")]
+        if _matches_any_pattern(module_name, HIERA_LAST_STAGE_LORA_TARGETS):
+            if hiera_rank is None:
+                hiera_rank = rank
+        elif _matches_any_pattern(module_name, SAM2_LORA_TARGETS):
+            if main_rank is None:
+                main_rank = rank
+        # Other LoRA tensors (e.g. from future experiments) are ignored here.
+
+    if main_rank is None:
         raise ValueError(
-            f"Could not detect LoRA rank from {path}: no lora_A.weight "
-            f"tensors found in the checkpoint."
+            f"Could not detect main LoRA rank from {path}: no lora_A.weight "
+            f"tensors matching SAM2_LORA_TARGETS were found."
         )
 
-    return {
-        "rank": detected_rank,
-        "alpha": float(2 * detected_rank),  # our training convention: scale = 2.0
-    }
+    result = {"main": {"rank": main_rank, "alpha": float(2 * main_rank)}}
+    if hiera_rank is not None:
+        result["hiera"] = {"rank": hiera_rank, "alpha": float(2 * hiera_rank)}
+    else:
+        result["hiera"] = None
+    return result
 
 
 def _normalize_key(key: str) -> str:

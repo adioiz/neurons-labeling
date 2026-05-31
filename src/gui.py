@@ -24,9 +24,9 @@ except ImportError:
 # Override with the SAM2_LORA_WEIGHTS environment variable.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 LORA_PATH_CANDIDATES = [
-    Path("/Users/adioiz/Documents/Learnings/Thesis/scripts/Fine-tune-SAM2-model-for-Neurons-segmentation/gpu-checkpoints/lora_weights.pt"),
-    _REPO_ROOT.parent / "Fine-tune-SAM2-model-for-Neurons-segmentation" / "gpu-checkpoints" / "lora_weights.pt",
-    _REPO_ROOT / "gpu-checkpoints" / "lora_weights.pt",
+    Path("/Users/adioiz/Documents/Learnings/Thesis/scripts/Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints-new/lora_weights.pt"),
+    _REPO_ROOT.parent / "Fine-tune-SAM2-model-for-Neurons-segmentation" / "checkpoints-new" / "lora_weights.pt",
+    _REPO_ROOT / "checkpoints-new" / "lora_weights.pt",
 ]
 
 
@@ -499,6 +499,7 @@ class VectorLabelerApp:
                 load_lora_weights,
                 detect_lora_config_from_checkpoint,
                 SAM2_LORA_TARGETS,
+                HIERA_LAST_STAGE_LORA_TARGETS,
             )
             from sam2.build_sam import build_sam2_video_predictor, _hf_download
 
@@ -510,21 +511,38 @@ class VectorLabelerApp:
                 mode="eval",
             )
 
-            # Auto-detect rank from the checkpoint so the in-memory LoRA
-            # layers match the saved tensor shapes. Without this, a rank-8
-            # default here would fail to load a rank-16 checkpoint with
-            # "tensor size 8 must match size 16" — and vice versa.
+            # Auto-detect ranks from the checkpoint so the in-memory LoRA
+            # layers match the saved tensor shapes. Run 6 introduced a
+            # SECOND LoRA pass on the Hiera encoder's last stage at a
+            # smaller rank than the main LoRA — so we need to detect and
+            # apply each group separately. Without this split, the
+            # single-rank detector would pick whichever group's tensors
+            # came first and fail to load the other.
             lora_cfg = detect_lora_config_from_checkpoint(str(lora_path))
+            main_cfg = lora_cfg["main"]
+            hiera_cfg = lora_cfg["hiera"]
             print(
-                f"SAM2: detected LoRA rank={lora_cfg['rank']}, "
-                f"alpha={lora_cfg['alpha']} from checkpoint"
+                f"SAM2: detected main LoRA rank={main_cfg['rank']}, "
+                f"alpha={main_cfg['alpha']} from checkpoint"
             )
             apply_lora(
                 predictor,
                 target_patterns=SAM2_LORA_TARGETS,
-                rank=lora_cfg["rank"],
-                alpha=lora_cfg["alpha"],
+                rank=main_cfg["rank"],
+                alpha=main_cfg["alpha"],
             )
+            if hiera_cfg is not None:
+                print(
+                    f"SAM2: detected Hiera last-stage LoRA rank="
+                    f"{hiera_cfg['rank']}, alpha={hiera_cfg['alpha']} "
+                    f"— applying second LoRA pass on Hiera trunk"
+                )
+                apply_lora(
+                    predictor,
+                    target_patterns=HIERA_LAST_STAGE_LORA_TARGETS,
+                    rank=hiera_cfg["rank"],
+                    alpha=hiera_cfg["alpha"],
+                )
             load_lora_weights(predictor, str(lora_path), device=device)
             predictor.eval()
             print("SAM2: Fine-tuned model loaded successfully")
