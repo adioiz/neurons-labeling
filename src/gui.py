@@ -22,11 +22,25 @@ except ImportError:
 
 # Candidate locations for fine-tuned LoRA weights, tried in order.
 # Override with the SAM2_LORA_WEIGHTS environment variable.
+#
+# checkpoints-16-frames/ holds the SHIPPED model -- the sixteen-frame run that
+# the paper reports. Every path here previously named checkpoints-new/ or
+# checkpoints/, neither of which contains weights on any machine, so the
+# checkbox fell back to base SAM 2 and the tool never ran the published model.
+# The legacy names are kept last so older local setups still resolve.
+#
+# The absolute path that used to head this list pointed into one developer's
+# home directory; it cannot resolve for anyone else and is removed. Use
+# SAM2_LORA_WEIGHTS for an out-of-tree checkpoint.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+_TRAIN_REPO = "Fine-tune-SAM2-model-for-Neurons-segmentation"
 LORA_PATH_CANDIDATES = [
-    Path("/Users/adioiz/Documents/Learnings/Thesis/scripts/Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints-new/lora_weights.pt"),
-    _REPO_ROOT.parent / "Fine-tune-SAM2-model-for-Neurons-segmentation" / "checkpoints-new" / "lora_weights.pt",
+    _REPO_ROOT.parent / _TRAIN_REPO / "checkpoints-16-frames" / "lora_weights.pt",
+    _REPO_ROOT / "checkpoints-16-frames" / "lora_weights.pt",
+    _REPO_ROOT.parent / _TRAIN_REPO / "checkpoints-new" / "lora_weights.pt",
     _REPO_ROOT / "checkpoints-new" / "lora_weights.pt",
+    _REPO_ROOT.parent / _TRAIN_REPO / "checkpoints" / "lora_weights.pt",
+    _REPO_ROOT / "checkpoints" / "lora_weights.pt",
 ]
 
 

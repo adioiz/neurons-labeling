@@ -47,9 +47,13 @@ python main.py
 The GUI resolves the LoRA checkpoint by checking these locations in order:
 
 1. `$SAM2_LORA_WEIGHTS` (environment variable, if set)
-2. `/Users/adioiz/Documents/Learnings/Thesis/scripts/Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints/lora_weights.pt` (absolute fallback)
-3. `../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints/lora_weights.pt` (sibling-repo)
-4. `checkpoints/lora_weights.pt` (in this repo, e.g. via symlink)
+2. `../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints-16-frames/lora_weights.pt` (sibling repo, the shipped model)
+3. `checkpoints-16-frames/lora_weights.pt` (in this repo, e.g. via symlink)
+4. the same two paths under `checkpoints-new/` then `checkpoints/` (legacy layouts)
+
+`checkpoints-16-frames/` is the sixteen-frame run reported in the paper. The
+list previously named only `checkpoints/`, which holds no weights, so the
+checkbox silently fell back to base SAM 2.
 
 After training in `Fine-tune-SAM2-model-for-Neurons-segmentation`:
 1. Check the **"Use fine-tuned model"** checkbox in the GUI
