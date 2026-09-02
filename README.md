@@ -65,7 +65,7 @@ click "SAM2: Propagate labels". The weights are in this repository.
 The GUI resolves the LoRA checkpoint by checking these locations in order:
 
 1. `$SAM2_LORA_WEIGHTS` (environment variable, if set)
-2. `../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints-16-frames/lora_weights.pt` (sibling training repo, if you have it checked out)
+2. `../NeuroVestigo/checkpoints-16-frames/lora_weights.pt` (sibling training repo, if you have it checked out)
 3. **`checkpoints-16-frames/lora_weights.pt` (bundled here — the shipped model)**
 4. the same two paths under `checkpoints-new/` then `checkpoints/` (legacy layouts)
 
@@ -147,4 +147,4 @@ symlinks back here for the annotation data:
 ## Training Your Own Model
 
 To fine-tune SAM2 on your labeled data, use the companion repository:
-[Fine-tune-SAM2-model-for-Neurons-segmentation](../Fine-tune-SAM2-model-for-Neurons-segmentation/)
+[NeuroVestigo](../NeuroVestigo/)

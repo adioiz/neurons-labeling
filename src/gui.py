@@ -33,7 +33,7 @@ except ImportError:
 # home directory; it cannot resolve for anyone else and is removed. Use
 # SAM2_LORA_WEIGHTS for an out-of-tree checkpoint.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_TRAIN_REPO = "Fine-tune-SAM2-model-for-Neurons-segmentation"
+_TRAIN_REPO = "NeuroVestigo"
 LORA_PATH_CANDIDATES = [
     _REPO_ROOT.parent / _TRAIN_REPO / "checkpoints-16-frames" / "lora_weights.pt",
     _REPO_ROOT / "checkpoints-16-frames" / "lora_weights.pt",
