@@ -1,0 +1,104 @@
+{
+  "sam2_model_id": "facebook/sam2.1-hiera-tiny",
+  "freeze_image_encoder": true,
+  "lora": {
+    "rank": 16,
+    "alpha": 32.0,
+    "dropout": 0.1,
+    "hiera_last_stage": true,
+    "hiera_rank": 8,
+    "hiera_alpha": 16.0
+  },
+  "data": {
+    "training_data_dir": "training_data",
+    "num_frames": 16,
+    "val_num_frames": null,
+    "image_size": 1024,
+    "max_objects": 3,
+    "val_fraction": 0.25,
+    "val_videos": [
+      "A91_C1_2",
+      "A31_C1",
+      "A52_C2",
+      "A22_C2",
+      "A42_C1"
+    ],
+    "test_videos": [
+      "A71_C1",
+      "A81_C1",
+      "A12_C3_100k",
+      "A12_C1_100k_2"
+    ],
+    "clip_stride": 4,
+    "cache_in_memory": true,
+    "precompute_features": false
+  },
+  "augmentation": {
+    "horizontal_flip_p": 0.5,
+    "vertical_flip_p": 0.5,
+    "rotation_degrees": 25.0,
+    "shear": 20.0,
+    "brightness": 0.15,
+    "contrast": 0.15,
+    "scale_limit": [
+      0.85,
+      1.15
+    ],
+    "gaussian_blur_p": 0.3,
+    "gaussian_blur_sigma": [
+      0.1,
+      2.0
+    ],
+    "gaussian_noise_p": 0.2,
+    "gaussian_noise_std": [
+      0.01,
+      0.05
+    ],
+    "elastic_transform_p": 0.3,
+    "elastic_alpha": 50.0,
+    "elastic_sigma": 5.0,
+    "normalize_mean": null,
+    "normalize_std": null
+  },
+  "optimizer": {
+    "base_lr": 1e-05,
+    "lora_lr": 0.0001,
+    "lora_b_lr_ratio": 16.0,
+    "weight_decay": 0.05,
+    "max_grad_norm": 1.0,
+    "warmup_epochs": 2,
+    "use_cosine_schedule": true,
+    "min_lr_ratio": 0.05
+  },
+  "loss": {
+    "loss_mask_weight": 3.0,
+    "loss_dice_weight": 2.0,
+    "loss_cbdice_weight": 0.3,
+    "loss_supervoxel_weight": 0.3,
+    "loss_iou_weight": 1.0,
+    "loss_class_weight": 1.0,
+    "focal_alpha": 0.25,
+    "focal_gamma": 2.0,
+    "use_cbdice": true,
+    "cbdice_num_iter": 5,
+    "use_supervoxel": true,
+    "topology_resolution": 512
+  },
+  "batch_size": 2,
+  "num_epochs": 110,
+  "num_workers": 2,
+  "seed": 42,
+  "use_amp": true,
+  "compile_encoder": false,
+  "compile_decoder": false,
+  "val_every_n_epochs": 2,
+  "val_max_batches": 0,
+  "early_stopping_patience": 90,
+  "checkpoint_dir": "checkpoints",
+  "save_best_only": true,
+  "prob_to_use_pt_input": 0.0,
+  "num_init_cond_frames": 1,
+  "use_memory_attention_path": true,
+  "resume_from": "checkpoints/train_state.pt",
+  "log_every_n_steps": 10
+}

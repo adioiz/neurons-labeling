@@ -1,6 +1,19 @@
-# Neurons Labeling
+# Neurons Labeling — annotation and inference for NeuroVestigo
 
-Napari-based tool for neuron segmentation with **SAM2 integration** for automatic video propagation.
+Napari plug-in for annotating single neurons in label-free phase-contrast
+time-lapse microscopy, and for running **NeuroVestigo** — the fine-tuned SAM 2
+model described in the accompanying paper — to propagate one annotation across
+a whole recording.
+
+Annotate a neuron on frame 0, propagate, correct anything wrong, export. Because
+a corrected frame is a mask in exactly the format the model was trained on,
+ordinary use of the tool produces training data without a separate annotation
+effort.
+
+**The model weights ship with this repository** —
+`checkpoints-16-frames/lora_weights.pt` (22 MB). These are LoRA adapters, not a
+full SAM 2 checkpoint: they are applied on top of the public SAM 2.1 Hiera-tiny
+weights, which are downloaded separately and remain under their own license.
 
 ## Workflow
 
@@ -46,18 +59,24 @@ python main.py
 
 The GUI resolves the LoRA checkpoint by checking these locations in order:
 
+Nothing to install or download — tick **"Use fine-tuned model"** in the GUI and
+click "SAM2: Propagate labels". The weights are in this repository.
+
+The GUI resolves the LoRA checkpoint by checking these locations in order:
+
 1. `$SAM2_LORA_WEIGHTS` (environment variable, if set)
-2. `../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints-16-frames/lora_weights.pt` (sibling repo, the shipped model)
-3. `checkpoints-16-frames/lora_weights.pt` (in this repo, e.g. via symlink)
+2. `../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints-16-frames/lora_weights.pt` (sibling training repo, if you have it checked out)
+3. **`checkpoints-16-frames/lora_weights.pt` (bundled here — the shipped model)**
 4. the same two paths under `checkpoints-new/` then `checkpoints/` (legacy layouts)
 
-`checkpoints-16-frames/` is the sixteen-frame run reported in the paper. The
-list previously named only `checkpoints/`, which holds no weights, so the
-checkbox silently fell back to base SAM 2.
+`checkpoints-16-frames/` is the sixteen-frame run reported in the paper:
+16-frame training clips, `topology_resolution` 512, loss weights focal 3.0 /
+Dice 2.0 / cbDice 0.3 / supervoxel 0.3, 110 epochs, best checkpoint at epoch
+100. `training_config.json` sits beside the weights and records the exact
+configuration that produced them.
 
-After training in `Fine-tune-SAM2-model-for-Neurons-segmentation`:
-1. Check the **"Use fine-tuned model"** checkbox in the GUI
-2. Click "SAM2: Propagate labels"
+Leaving the checkbox unticked runs base SAM 2 instead, which is how the
+zero-shot baseline in the paper is reproduced.
 
 If the fine-tuned checkpoint can't be found or loaded, the GUI shows a
 warning explaining why and falls back to the base SAM 2 model. The
@@ -97,7 +116,9 @@ neurons-labeling/
 ├── requirements.txt
 ├── labeled_masks/           # Your labeled mask TIFFs (source of truth)
 ├── labeled_coordinates/     # Exported CSV coordinates
-├── checkpoints/             # Optional symlink -> ../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints (the GUI also accepts SAM2_LORA_WEIGHTS / sibling-repo paths)
+├── checkpoints-16-frames/   # NeuroVestigo weights (bundled)
+│   ├── lora_weights.pt      #   LoRA adapters, 22 MB
+│   └── training_config.json #   the exact config that produced them
 └── src/
     ├── gui.py               # Napari GUI with SAM2 + LoRA support
     ├── io.py                # CSV I/O utilities
@@ -107,13 +128,11 @@ neurons-labeling/
 
 ## Repository Connection
 
-This repo is connected to `Fine-tune-SAM2-model-for-Neurons-segmentation` via symlinks:
+This repo is self-contained: the weights it needs are bundled, so it can be
+cloned and used on its own.
 
-| This Repo | Links To |
-|-----------|----------|
-| `checkpoints/` | `../Fine-tune-SAM2-model-for-Neurons-segmentation/checkpoints/` |
-
-The training repo also symlinks back here:
+If you also check out the training repo as a sibling directory, that repo
+symlinks back here for the annotation data:
 
 | Training Repo | Links To |
 |---------------|----------|
