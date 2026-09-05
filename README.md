@@ -10,7 +10,7 @@ a corrected frame is a mask in exactly the format the model was trained on,
 ordinary use of the tool produces training data without a separate annotation
 effort.
 
-**The model weights ship with this repository** —
+**Model weights ship with this repository** —
 `checkpoints-16-frames/lora_weights.pt` (22 MB). These are LoRA adapters, not a
 full SAM 2 checkpoint: they are applied on top of the public SAM 2.1 Hiera-tiny
 weights, which are downloaded separately and remain under their own license.
@@ -65,15 +65,21 @@ click "SAM2: Propagate labels". The weights are in this repository.
 The GUI resolves the LoRA checkpoint by checking these locations in order:
 
 1. `$SAM2_LORA_WEIGHTS` (environment variable, if set)
-2. `../NeuroVestigo/checkpoints-16-frames/lora_weights.pt` (sibling training repo, if you have it checked out)
-3. **`checkpoints-16-frames/lora_weights.pt` (bundled here — the shipped model)**
-4. the same two paths under `checkpoints-new/` then `checkpoints/` (legacy layouts)
+2. `../NeuroVestigo/checkpoints/lora_weights.pt` (sibling training repo — where training writes, so this is the most recent run)
+3. `checkpoints/lora_weights.pt`
+4. **`checkpoints-16-frames/lora_weights.pt` (bundled here)**
+5. the same two paths under `checkpoints-new/` (legacy layout)
 
-`checkpoints-16-frames/` is the sixteen-frame run reported in the paper:
-16-frame training clips, `topology_resolution` 512, loss weights focal 3.0 /
-Dice 2.0 / cbDice 0.3 / supervoxel 0.3, 110 epochs, best checkpoint at epoch
-100. `training_config.json` sits beside the weights and records the exact
-configuration that produced them.
+`checkpoints-16-frames/` is the run the paper's Results table was measured
+with: 16-frame training clips, `topology_resolution` 512, loss weights focal
+3.0 / Dice 2.0 / cbDice 0.3 / supervoxel 0.3, 29 recordings, 110 epochs, best
+checkpoint at epoch 100 (val IoU 0.8377). `training_config.json` sits beside
+the weights and records the exact configuration that produced them.
+
+If you have NeuroVestigo checked out alongside this repo, entry 2 wins and you
+get whatever that repo last trained — currently the 31-recording run (22 train
+/ 5 val / 4 held-out test), best epoch 90 at val IoU 0.8399. Set
+`SAM2_LORA_WEIGHTS` to pin a specific checkpoint instead.
 
 Leaving the checkbox unticked runs base SAM 2 instead, which is how the
 zero-shot baseline in the paper is reproduced.
@@ -116,9 +122,11 @@ neurons-labeling/
 ├── requirements.txt
 ├── labeled_masks/           # Your labeled mask TIFFs (source of truth)
 ├── labeled_coordinates/     # Exported CSV coordinates
-├── checkpoints-16-frames/   # NeuroVestigo weights (bundled)
+├── checkpoints-16-frames/   # NeuroVestigo weights (bundled fallback)
 │   ├── lora_weights.pt      #   LoRA adapters, 22 MB
 │   └── training_config.json #   the exact config that produced them
+│                            # ../NeuroVestigo/checkpoints/ takes priority
+│                            # when that repo is checked out alongside
 └── src/
     ├── gui.py               # Napari GUI with SAM2 + LoRA support
     ├── io.py                # CSV I/O utilities

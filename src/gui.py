@@ -23,24 +23,25 @@ except ImportError:
 # Candidate locations for fine-tuned LoRA weights, tried in order.
 # Override with the SAM2_LORA_WEIGHTS environment variable.
 #
-# checkpoints-16-frames/ holds the SHIPPED model -- the sixteen-frame run that
-# the paper reports. Every path here previously named checkpoints-new/ or
-# checkpoints/, neither of which contains weights on any machine, so the
-# checkbox fell back to base SAM 2 and the tool never ran the published model.
-# The legacy names are kept last so older local setups still resolve.
+# checkpoints/ is where training writes, so the sibling NeuroVestigo checkout
+# holds the most recent run and is tried first. checkpoints-16-frames/ is the
+# run the paper's Results table was measured with; it is BUNDLED in this repo,
+# so the tool still runs a real trained model when NeuroVestigo is absent.
+# The legacy checkpoints-new/ names are kept last so older setups still resolve.
 #
-# The absolute path that used to head this list pointed into one developer's
-# home directory; it cannot resolve for anyone else and is removed. Use
-# SAM2_LORA_WEIGHTS for an out-of-tree checkpoint.
+# Every entry is relative to this file. The absolute path that used to head the
+# list pointed into one developer's home directory and could not resolve for
+# anyone else; keep it that way. Use SAM2_LORA_WEIGHTS for an out-of-tree
+# checkpoint, which also overrides this ordering.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _TRAIN_REPO = "NeuroVestigo"
 LORA_PATH_CANDIDATES = [
+    _REPO_ROOT.parent / _TRAIN_REPO / "checkpoints" / "lora_weights.pt",
+    _REPO_ROOT / "checkpoints" / "lora_weights.pt",
     _REPO_ROOT.parent / _TRAIN_REPO / "checkpoints-16-frames" / "lora_weights.pt",
     _REPO_ROOT / "checkpoints-16-frames" / "lora_weights.pt",
     _REPO_ROOT.parent / _TRAIN_REPO / "checkpoints-new" / "lora_weights.pt",
     _REPO_ROOT / "checkpoints-new" / "lora_weights.pt",
-    _REPO_ROOT.parent / _TRAIN_REPO / "checkpoints" / "lora_weights.pt",
-    _REPO_ROOT / "checkpoints" / "lora_weights.pt",
 ]
 
 
