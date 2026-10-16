@@ -25,7 +25,7 @@ except ImportError:
 #
 # checkpoints/ is where training writes, so the sibling NeuroVestigo checkout
 # holds the most recent run and is tried first. checkpoints-16-frames/ holds
-# the released model (run 2 of the paper's three-split evaluation, topology
+# the released model (run 1 of the paper's three-split evaluation, topology
 # checkpoint); it is BUNDLED in this repo, so the tool still runs a real trained
 # model when NeuroVestigo is absent.
 # The legacy checkpoints-new/ names are kept last so older setups still resolve.

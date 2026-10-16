@@ -70,13 +70,13 @@ The GUI resolves the LoRA checkpoint by checking these locations in order:
 4. **`checkpoints-16-frames/lora_weights.pt` (bundled here)**
 5. the same two paths under `checkpoints-new/` (legacy layout)
 
-`checkpoints-16-frames/` holds the released NeuroVestigo model: run 2 of the
-paper's three-split evaluation, at its topology tie-break checkpoint (epoch 108
-of 110; validation IoU 0.8372, Betti-0 error 0.556). It was chosen for the best
-validation score of the three runs. The recipe is the paper's: 16-frame training
-clips, `topology_resolution` 512, loss weights focal 3.0 / Dice 2.0 / cbDice
-0.3 / supervoxel 0.3, 23 training and 5 validation recordings. Its four held-out
-test recordings are A51_C1, A61_C1, B11_C1_100k and B12_C1_100k.
+`checkpoints-16-frames/` holds the released NeuroVestigo model: run 1 of the
+paper's three-split evaluation, at its topology tie-break checkpoint (epoch 110
+of 110; validation IoU 0.8364, Betti-0 error 0.605). The recipe is the paper's:
+16-frame training clips, `topology_resolution` 512, loss weights focal 3.0 /
+Dice 2.0 / cbDice 0.3 / supervoxel 0.3, 23 training and 5 validation
+recordings. Its four held-out test recordings are A71_C1, A81_C1, A12_C3_100k
+and A12_C1_100k_2.
 `training_config.json` sits beside the weights and records the exact
 configuration that produced them.
 

@@ -1,7 +1,6 @@
 {
   "sam2_model_id": "facebook/sam2.1-hiera-tiny",
   "freeze_image_encoder": true,
-  "backbone": "sam2",
   "lora": {
     "rank": 16,
     "alpha": 32.0,
@@ -26,10 +25,10 @@
       "A42_C1"
     ],
     "test_videos": [
-      "A51_C1",
-      "A61_C1",
-      "B11_C1_100k",
-      "B12_C1_100k"
+      "A71_C1",
+      "A81_C1",
+      "A12_C3_100k",
+      "A12_C1_100k_2"
     ],
     "clip_stride": 4,
     "cache_in_memory": true,
@@ -103,13 +102,13 @@
   "val_every_n_epochs": 2,
   "val_max_batches": 0,
   "early_stopping_patience": 90,
-  "checkpoint_dir": "checkpoints-fold2",
+  "checkpoint_dir": "checkpoints",
   "save_best_only": true,
   "prob_to_use_pt_input": 0.0,
   "num_init_cond_frames": 1,
   "prompt_dropout": 0.0,
   "prompt_dropout_warmup_epochs": 40,
   "use_memory_attention_path": true,
-  "resume_from": "checkpoints-fold2/train_state.pt",
+  "resume_from": "checkpoints/train_state.pt",
   "log_every_n_steps": 10
 }
