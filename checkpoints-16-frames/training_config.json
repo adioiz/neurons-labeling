@@ -1,18 +1,20 @@
 {
   "sam2_model_id": "facebook/sam2.1-hiera-tiny",
   "freeze_image_encoder": true,
+  "backbone": "sam2",
   "lora": {
     "rank": 16,
     "alpha": 32.0,
     "dropout": 0.1,
     "hiera_last_stage": true,
     "hiera_rank": 8,
-    "hiera_alpha": 16.0
+    "hiera_alpha": 16.0,
+    "hiera_blocks": 2
   },
   "data": {
     "training_data_dir": "training_data",
     "num_frames": 16,
-    "val_num_frames": null,
+    "val_num_frames": 16,
     "image_size": 1024,
     "max_objects": 3,
     "val_fraction": 0.25,
@@ -24,10 +26,10 @@
       "A42_C1"
     ],
     "test_videos": [
-      "A71_C1",
-      "A81_C1",
-      "A12_C3_100k",
-      "A12_C1_100k_2"
+      "A51_C1",
+      "A61_C1",
+      "B11_C1_100k",
+      "B12_C1_100k"
     ],
     "clip_stride": 4,
     "cache_in_memory": true,
@@ -82,7 +84,14 @@
     "use_cbdice": true,
     "cbdice_num_iter": 5,
     "use_supervoxel": true,
-    "topology_resolution": 512
+    "topology_resolution": 512,
+    "use_prompt_distill": false,
+    "distill_dice_weight": 0.2,
+    "distill_cbdice_weight": 0.1,
+    "distill_start_epoch": 40,
+    "save_topo_checkpoint": true,
+    "topo_iou_margin": 0.005,
+    "distill_frames_per_clip": 4
   },
   "batch_size": 2,
   "num_epochs": 110,
@@ -94,11 +103,13 @@
   "val_every_n_epochs": 2,
   "val_max_batches": 0,
   "early_stopping_patience": 90,
-  "checkpoint_dir": "checkpoints",
+  "checkpoint_dir": "checkpoints-fold2",
   "save_best_only": true,
   "prob_to_use_pt_input": 0.0,
   "num_init_cond_frames": 1,
+  "prompt_dropout": 0.0,
+  "prompt_dropout_warmup_epochs": 40,
   "use_memory_attention_path": true,
-  "resume_from": "checkpoints/train_state.pt",
+  "resume_from": "checkpoints-fold2/train_state.pt",
   "log_every_n_steps": 10
 }

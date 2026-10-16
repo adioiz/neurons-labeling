@@ -11,9 +11,11 @@ ordinary use of the tool produces training data without a separate annotation
 effort.
 
 **Model weights ship with this repository** —
-`checkpoints-16-frames/lora_weights.pt` (22 MB). These are LoRA adapters, not a
-full SAM 2 checkpoint: they are applied on top of the public SAM 2.1 Hiera-tiny
-weights, which are downloaded separately and remain under their own license.
+`checkpoints-16-frames/lora_weights.pt` (22 MB). These are the 5.56 M parameters
+NeuroVestigo trains (LoRA adapters plus the fine-tuned prompt encoder, memory
+encoder and decoder heads), not a full SAM 2 checkpoint: they are applied on top
+of the public SAM 2.1 Hiera-tiny weights, which are downloaded separately and
+remain under their own license.
 
 ## Workflow
 
@@ -57,8 +59,6 @@ python main.py
 
 ## Using Fine-Tuned Models
 
-The GUI resolves the LoRA checkpoint by checking these locations in order:
-
 Nothing to install or download — tick **"Use fine-tuned model"** in the GUI and
 click "SAM2: Propagate labels". The weights are in this repository.
 
@@ -70,16 +70,19 @@ The GUI resolves the LoRA checkpoint by checking these locations in order:
 4. **`checkpoints-16-frames/lora_weights.pt` (bundled here)**
 5. the same two paths under `checkpoints-new/` (legacy layout)
 
-`checkpoints-16-frames/` is the run the paper's Results table was measured
-with: 16-frame training clips, `topology_resolution` 512, loss weights focal
-3.0 / Dice 2.0 / cbDice 0.3 / supervoxel 0.3, 29 recordings, 110 epochs, best
-checkpoint at epoch 100 (val IoU 0.8377). `training_config.json` sits beside
-the weights and records the exact configuration that produced them.
+`checkpoints-16-frames/` holds the released NeuroVestigo model: run 2 of the
+paper's three-split evaluation, at its topology tie-break checkpoint (epoch 108
+of 110; validation IoU 0.8372, Betti-0 error 0.556). It was chosen for the best
+validation score of the three runs. The recipe is the paper's: 16-frame training
+clips, `topology_resolution` 512, loss weights focal 3.0 / Dice 2.0 / cbDice
+0.3 / supervoxel 0.3, 23 training and 5 validation recordings. Its four held-out
+test recordings are A51_C1, A61_C1, B11_C1_100k and B12_C1_100k.
+`training_config.json` sits beside the weights and records the exact
+configuration that produced them.
 
 If you have NeuroVestigo checked out alongside this repo, entry 2 wins and you
-get whatever that repo last trained — currently the 31-recording run (22 train
-/ 5 val / 4 held-out test), best epoch 90 at val IoU 0.8399. Set
-`SAM2_LORA_WEIGHTS` to pin a specific checkpoint instead.
+get whatever that checkout's `checkpoints/` holds (training writes there; it is
+not in git). Set `SAM2_LORA_WEIGHTS` to pin a specific checkpoint instead.
 
 Leaving the checkbox unticked runs base SAM 2 instead, which is how the
 zero-shot baseline in the paper is reproduced.

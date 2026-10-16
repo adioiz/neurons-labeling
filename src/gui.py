@@ -24,9 +24,10 @@ except ImportError:
 # Override with the SAM2_LORA_WEIGHTS environment variable.
 #
 # checkpoints/ is where training writes, so the sibling NeuroVestigo checkout
-# holds the most recent run and is tried first. checkpoints-16-frames/ is the
-# run the paper's Results table was measured with; it is BUNDLED in this repo,
-# so the tool still runs a real trained model when NeuroVestigo is absent.
+# holds the most recent run and is tried first. checkpoints-16-frames/ holds
+# the released model (run 2 of the paper's three-split evaluation, topology
+# checkpoint); it is BUNDLED in this repo, so the tool still runs a real trained
+# model when NeuroVestigo is absent.
 # The legacy checkpoints-new/ names are kept last so older setups still resolve.
 #
 # Every entry is relative to this file. The absolute path that used to head the
