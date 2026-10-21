@@ -20,3 +20,8 @@ outputs/
 
 # Symlinks to other repos
 checkpoints
+# Microscopy recordings, masks and labeled coordinates stay out of git
+*.tif
+*.tiff
+labeled_masks/
+labeled_coordinates/
